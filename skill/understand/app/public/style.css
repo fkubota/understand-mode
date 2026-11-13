@@ -100,12 +100,12 @@ mark.anc.impact { background: linear-gradient(transparent 52%, var(--pink-mark) 
 .sticky.t-diagram { background: #f7f4ea; }
 .sticky.t-data { background: var(--paper-card); border: 1px solid var(--sky-300); }
 .sticky.t-memo { background: var(--paper-card); border: 1px dashed var(--sky-300); }
-.sticky.impact { background: var(--pink); }
+/* 影響ありでも付箋の地色は変えない。印はチップだけに任せる */
 .sticky.focused { outline: 1.5px solid var(--ink); outline-offset: 3px; }
 /* 上辺に貼ったマスキングテープ */
 .st-tape { position: absolute; left: 50%; top: -9px; width: 118px; height: 17px; transform: translateX(-50%);
   background: rgba(150,160,180,.22); border-radius: 1px; }
-.sticky.impact .st-tape { background: rgba(224,87,62,.2); }
+
 .sticky.t-term .st-tape, .sticky.t-data .st-tape { background: rgba(120,150,190,.22); }
 .sticky.folded .st-tape { display: none; }
 
@@ -114,8 +114,10 @@ mark.anc.impact { background: linear-gradient(transparent 52%, var(--pink-mark) 
 .st-head .st-btn { order: 1; }
 .st-head .kids { order: 1; }
 .st-kind { flex: none; font-size: 10.5px; font-weight: 400; letter-spacing: .06em; color: var(--ink-soft); }
-.t-data .st-kind, .t-review .st-kind, .impact .st-kind { background: none; color: var(--ink-soft); }
-.impact .st-kind { color: var(--coral); }
+.t-data .st-kind, .t-review .st-kind { background: none; color: var(--ink-soft); }
+/* 影響ありのチップ */
+.impact .st-kind { color: var(--coral); background: rgba(224,87,62,.13); border: 1px solid rgba(224,87,62,.42);
+  border-radius: 999px; padding: 2px 9px; letter-spacing: .04em; }
 .st-title { order: 2; flex: 0 0 100%; font-family: var(--serif); font-size: 15px; font-weight: 400; line-height: 1.7;
   color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .st-btn { flex: none; font-size: 10.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(43,53,80,.22); background: rgba(255,255,255,.55); color: var(--ink-soft); }

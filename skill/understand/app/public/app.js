@@ -398,7 +398,7 @@ function renderSticky(st, skipWires) {
 
   // ヘッダー
   const head = el('div', 'st-head');
-  head.append(el('span', 'st-kind', st.impact ? '影響あり' : KIND[st.type]));
+  head.append(el('span', 'st-kind', KIND[st.type])); // 種類は出しっぱなし。影響ありは色だけで示す
   head.append(el('span', 'st-title', st.title));
   if (st.folded) {
     const kids = descendantsCount(st.id);
@@ -718,11 +718,19 @@ function drawWires() {
       if (r.height && r.top >= srcR.top && r.bottom <= srcR.bottom) ay = (r.top + r.height / 2 - b.top - S.pan.y) / S.zoom;
     }
     if (ay == null) ay = parentFolded ? src.offsetTop + src.offsetHeight / 2 : src.offsetTop + Math.min(Math.max(st.anchorY, 16), src.offsetHeight - 10);
-    const ax = src.offsetLeft + src.offsetWidth;
-    const bx = me.offsetLeft, by = me.offsetTop + 20;
+    // 付箋を左に動かしたら、線も左側から出る（出どころ・付箋とも、近いほうの辺につなぐ）
+    const srcL = src.offsetLeft, srcR = srcL + src.offsetWidth;
+    const meL = me.offsetLeft, meR = meL + me.offsetWidth;
+    const toLeft = (meL + meR) / 2 < (srcL + srcR) / 2;
+    const ax = toLeft ? srcL : srcR;
+    const bx = toLeft ? meR : meL;
+    const by = me.offsetTop + 20;
     const dx = Math.max(30, Math.abs(bx - ax) / 2);
-    parts.push(`<path d="M${ax},${ay} C${ax + dx},${ay} ${bx - dx},${by} ${bx},${by}" stroke="${st.impact ? '#ec6d50' : WIRE_COLOR[st.type]}"/>`);
-    parts.push(`<circle cx="${ax}" cy="${ay}" r="4" fill="${st.impact ? '#ec6d50' : WIRE_COLOR[st.type]}"/>`);
+    const c1 = toLeft ? ax - dx : ax + dx;
+    const c2 = toLeft ? bx + dx : bx - dx;
+    const color = WIRE_COLOR[st.type];
+    parts.push(`<path d="M${ax},${ay} C${c1},${ay} ${c2},${by} ${bx},${by}" stroke="${color}"/>`);
+    parts.push(`<circle cx="${ax}" cy="${ay}" r="4" fill="${color}"/>`);
   });
   wires.innerHTML = parts.join('');
 }
