@@ -90,7 +90,7 @@ Sticky = {
   id, type,            // question | detail | term | diagram | data | review | memo
   parent,              // 'main' | 親の付箋ID | null（メモ付箋）
   title, anchorText, anchorY, code, lines,   // 選んだ文と位置、コードなら行番号
-  x, y, folded, impact,
+  x, y, w, h, folded, impact,   // w/h は右下のつまみで変えたとき
   sessionId,           // この付箋の分岐セッション
   messages: [{role: 'user'|'assistant'|'error', text, kind?: 'result', at?, sql?, ranSql?: []}],
   memo, busy
@@ -106,7 +106,7 @@ Sticky = {
 - コードブロックの見出し行「`~~~~python path/to/file.py:12`」は、`marked` の renderer で `data-file` / `data-start` にして、**ファイル名と実際の行番号**を表示する。`diff` は追加・削除行に色を付け、`@@` 見出しがあれば変更後の行番号を振る。
 - 本筋のコードは常に行番号付き。選択すると「`file.py 12〜19行目`」を質問に添える。
 - 付箋の出どころの文には `mark.anc` を付け、そこから付箋へ線（SVG の曲線）を引く。描き直すたびに `rehighlight` で付け直す。
-- 自動でたたむ：`focusSticky` で、対象と祖先・影響あり・作業中以外をたたむ。
+- `focusSticky` は対象とその祖先を開くだけ。以前は他を全部たたんでいたが、付箋を動かしただけで畳まれて驚くのでやめた。まとめてたたむのは「すべてたたむ」。
 
 ## 同梱ライブラリの更新
 

@@ -1,5 +1,5 @@
 'use strict';
-// 理解モード フロントエンド（依存：marked / DOMPurify / mermaid / vega-embed）
+// understand-mode フロントエンド（依存：marked / DOMPurify / mermaid / vega-embed）
 
 const $ = (s) => document.querySelector(s);
 const KIND = { question: '質問', detail: '詳しく', term: '用語', diagram: '図', data: 'データ', review: 'レビュー', memo: 'メモ' };
@@ -49,7 +49,7 @@ async function post(url, body) {
     const r = await fetch(url, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
     return await r.json();
   } catch (e) {
-    return { ok: false, error: 'ローカルサーバーに接続できませんでした。理解モードを起動し直してください。' };
+    return { ok: false, error: 'ローカルサーバーに接続できませんでした。understand-modeを起動し直してください。' };
   }
 }
 
@@ -293,14 +293,12 @@ function isHidden(st) { return ancestors(st).some((id) => S.stickies[id].folded)
 function childrenOf(id) { return S.order.filter((k) => S.stickies[k].parent === id); }
 function descendantsCount(id) { return childrenOf(id).reduce((n, k) => n + 1 + descendantsCount(k), 0); }
 
-// 別の付箋を開いたら、前の付箋は自動でたたむ（影響あり・作業中・祖先は除く）
+// 対象（とその祖先）を開いて、そこに目を向ける。
+// 以前はこのとき他を全部たたんでいたが、付箋を動かしただけで畳まれて驚くので、やめた。
+// まとめてたたみたいときは、上の「すべてたたむ」を使う。
 function focusSticky(id) {
   const st = S.stickies[id];
-  const keep = new Set([id, ...ancestors(st)]);
-  S.order.forEach((k) => {
-    const o = S.stickies[k];
-    if (!keep.has(k) && !o.impact && !o.busy) o.folded = true;
-  });
+  ancestors(st).forEach((a) => { S.stickies[a].folded = false; });
   st.folded = false;
   S.focus = id;
   renderAll();
@@ -391,6 +389,7 @@ function renderSticky(st, skipWires) {
   box.style.left = st.x + 'px';
   box.style.top = st.y + 'px';
   box.style.display = isHidden(st) ? 'none' : '';
+  box.style.width = st.folded || !st.w ? '' : st.w + 'px';
   box.innerHTML = '';
 
   // ヘッダー
@@ -408,7 +407,7 @@ function renderSticky(st, skipWires) {
     return finish();
   }
   const impactBtn = el('button', 'st-btn' + (st.impact ? ' on' : ''), '本筋に影響あり');
-  impactBtn.title = 'メインに返す候補にする（自動でたたまれなくなります）';
+  impactBtn.title = 'メインに返す候補にする';
   impactBtn.onclick = () => { st.impact = !st.impact; renderAll(); };
   const foldBtn = el('button', 'st-btn', 'たたむ');
   foldBtn.onclick = () => { st.folded = true; renderAll(); };
@@ -425,6 +424,7 @@ function renderSticky(st, skipWires) {
   }
 
   const body = el('div', 'st-body');
+  if (st.h) body.style.maxHeight = st.h + 'px';
   if (st.type === 'memo') {
     const ta = el('textarea', 'memo-edit');
     ta.placeholder = '自分の言葉でまとめる…';
@@ -461,7 +461,7 @@ function renderSticky(st, skipWires) {
   return finish();
 
   function finish() {
-    if (!st.folded) rehighlight(box, st.id);
+    if (!st.folded) { rehighlight(box, st.id); attachResize(box, st); }
     if (!skipWires) { refreshStatus(); drawWires(); }
   }
 }
@@ -713,6 +713,40 @@ function drawWires() {
 }
 
 // ---------------- ドラッグ ----------------
+// 右下のつまみで、付箋の大きさを変える。ダブルクリックで既定に戻す
+function attachResize(box, st) {
+  const grip = el('div', 'st-resize');
+  grip.title = 'ドラッグで大きさを変える（ダブルクリックで元に戻す）';
+  grip.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const body = box.querySelector('.st-body');
+    const start = { x: e.clientX, y: e.clientY, w: box.offsetWidth, h: body ? body.offsetHeight : 0 };
+    const mv = (ev) => {
+      st.w = Math.max(280, Math.round(start.w + (ev.clientX - start.x) / S.zoom));
+      box.style.width = st.w + 'px';
+      if (body) {
+        st.h = Math.max(120, Math.round(start.h + (ev.clientY - start.y) / S.zoom));
+        body.style.maxHeight = st.h + 'px';
+      }
+      drawWires();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', mv);
+      window.removeEventListener('mouseup', up);
+      save(); drawWires();
+    };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+  });
+  grip.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    delete st.w; delete st.h;
+    save(); renderAll();
+  });
+  box.append(grip);
+}
+
 function attachDrag(handle, st, onClick) {
   handle.addEventListener('mousedown', (e) => {
     if (e.button !== 0 || e.target.closest('button')) return;

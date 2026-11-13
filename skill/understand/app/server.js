@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 理解モード ローカルサーバー
+// understand-mode ローカルサーバー
 // 使い方: node server.js --dir <作業フォルダ> --session <メインのセッションID> --cwd <プロジェクトのパス> [--port 0] [--no-open]
 // 依存パッケージなし（Node 18+ の標準モジュールのみ）
 
@@ -123,7 +123,7 @@ function cleanupForkedSessions() {
 
 // ---------- Claude 呼び出し ----------
 const SYSTEM_APPEND = [
-  'あなたは今「理解モード」の説明役です。ユーザーは、この会話でClaudeが出した内容（本筋）を理解しようとしています。',
+  'あなたは今「understand-mode」の説明役です。ユーザーは、この会話でClaudeが出した内容（本筋）を理解しようとしています。',
   '目的は説明して理解を助けることです。ファイルの編集はしないでください。',
   'コマンドの実行は、ユーザーが承認したSQLを実行するときだけ行ってください。それ以外では実行しないでください。',
   '日本語で、短く、具体例を使って答えてください。見出しは使わず、段落と短い箇条書きだけにしてください。',
@@ -255,7 +255,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname.startsWith('/api/')) {
       const deny = denyReason(req, url);
-      if (deny) return send(res, 403, { ok: false, error: `${deny}。理解モードのURLから開き直してください。` });
+      if (deny) return send(res, 403, { ok: false, error: `${deny}。understand-modeのURLから開き直してください。` });
     }
     if (req.method === 'GET' && url.pathname === '/api/init') {
       const mdPath = path.join(WORK_DIR, 'main.md');
@@ -349,7 +349,7 @@ server.listen(Number(args.port || 0), '127.0.0.1', () => {
   const url = `http://127.0.0.1:${PORT}/?t=${TOKEN}`;
   fs.writeFileSync(path.join(WORK_DIR, 'url.txt'), url + '\n');
   fs.writeFileSync(path.join(WORK_DIR, 'server.pid'), String(process.pid));
-  console.log(`理解モード: ${url}`);
+  console.log(`understand-mode: ${url}`);
   console.log(`作業フォルダ: ${WORK_DIR}`);
   console.log(`メインのセッション: ${mainSessionId || '(見つかりません)'}`);
   console.log(`分身を動かす場所: ${SPAWN_CWD}`);

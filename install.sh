@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 理解モード（/understand スキル）を Claude Code にインストールする
+# understand-mode（/understand スキル）を Claude Code にインストールする
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

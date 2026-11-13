@@ -1,11 +1,11 @@
 ---
 name: understand
-description: Claudeの出力（調査結果・説明・設計）、PR、コード、未コミットの差分を、付箋のホワイトボードで寄り道しながら理解する「理解モード」を起動する。「/understand このPRを理解したい」のように依頼文から始めると、説明文書を作ってから開く。ユーザーが /understand と打ったときに使う。
+description: Claudeの出力（調査結果・説明・設計）、PR、コード、未コミットの差分を、付箋のホワイトボードで寄り道しながら理解する「understand-mode」を起動する。「/understand このPRを理解したい」のように依頼文から始めると、説明文書を作ってから開く。ユーザーが /understand と打ったときに使う。
 argument-hint: "[理解したいこと（例：このPRを理解したい） | ファイルのパス | diff | 省略で直前の回答]"
 disable-model-invocation: true
 ---
 
-# 理解モード
+# understand-mode
 
 ユーザーが、あなた（このセッションのClaude）の出力を理解するために、ローカルのホワイトボードアプリを起動する。
 アプリの中の質問には、このセッションを分岐させたClaudeが答える。このセッション自体の会話は汚れない。

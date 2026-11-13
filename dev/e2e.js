@@ -102,12 +102,55 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
   await page.waitForTimeout(1200);
   await page.screenshot({ path: `${OUT}/5-chart.png` });
 
+  // 付箋を動かしても、他が勝手にたたまれないこと
+  const foldedBefore = await page.evaluate(() => [...document.querySelectorAll('.sticky')].map((s) => s.classList.contains('folded')));
+  const headBox = await (await page.$('.sticky .st-head')).boundingBox();
+  await page.mouse.move(headBox.x + 40, headBox.y + 10);
+  await page.mouse.down();
+  await page.waitForTimeout(80);
+  await page.mouse.move(headBox.x + 40, headBox.y + 70, { steps: 6 });
+  await page.waitForTimeout(80);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const foldedAfter = await page.evaluate(() => [...document.querySelectorAll('.sticky')].map((s) => s.classList.contains('folded')));
+  if (JSON.stringify(foldedBefore) !== JSON.stringify(foldedAfter)) {
+    errors.push(`動かしただけでたたまれた: ${JSON.stringify(foldedBefore)} → ${JSON.stringify(foldedAfter)}`);
+  }
+
   // 影響あり→整列
   await page.click('.sticky.focused .impact-line .btn-mini');
   await page.click('#btn-arrange');
   await page.waitForTimeout(500);
   await page.click('#btn-zoom-out');
   await page.waitForTimeout(300);
+
+  // 右下のつまみで大きさを変えられること（画面の中にあるつまみを選ぶ。縮小中なので倍率の換算も効く）
+  const pick = await page.evaluate(() => {
+    const vw = innerWidth, vh = innerHeight;
+    for (const g of document.querySelectorAll('.sticky:not(.folded) .st-resize')) {
+      const r = g.getBoundingClientRect();
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      if (cx > 0 && cy > 0 && cx < vw && cy < vh && document.elementFromPoint(cx, cy) === g) {
+        g.closest('.sticky').dataset.resizeTarget = '1';
+        return { cx, cy, width: g.closest('.sticky').offsetWidth };
+      }
+    }
+    return null;
+  });
+  if (!pick) {
+    errors.push('画面の中に操作できるつまみが見つからない');
+  } else {
+    await page.mouse.move(pick.cx, pick.cy);
+    await page.mouse.down();
+    await page.waitForTimeout(80);
+    await page.mouse.move(pick.cx + 150, pick.cy + 120, { steps: 8 });
+    await page.waitForTimeout(80);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => document.querySelector('[data-resize-target]').offsetWidth);
+    const savedW = await page.evaluate(() => Object.values(JSON.parse(sessionStorage.getItem('understand-state') || '{}').stickies || {}).some((s) => s.w));
+    if (after <= pick.width || !savedW) errors.push(`大きさが変えられない: ${pick.width} → ${after} / 保存=${savedW}`);
+  }
   await page.screenshot({ path: `${OUT}/6-arranged.png` });
 
   // 理解を終える
