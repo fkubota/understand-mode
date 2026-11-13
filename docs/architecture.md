@@ -34,7 +34,7 @@ sequenceDiagram
 | `skill/understand/SKILL.md` | Claude Code のスキル本体。起動・図のモード（`-1`/`-2`）・「終わった」後の手順。`${CLAUDE_SKILL_DIR}` と `${CLAUDE_SESSION_ID}` を使う |
 | `skill/understand/pr-guide.md` | 依頼文がPR・ブランチのときの、説明文書の作り方 |
 | `skill/understand/app/server.js` | ローカルサーバー。依存パッケージなし（Node 18+ 標準のみ）。設定ファイルを持たない |
-| `skill/understand/app/public/` | 画面（素の JS。ビルドなし）。`favicon.svg` は水面から潜るアイコン |
+| `skill/understand/app/public/` | 画面（素の JS。ビルドなし）。`favicon.svg` は水面から潜るアイコン。見た目は方眼ノート風 |
 | `skill/understand/app/public/vendor/` | marked 12.0.2 / DOMPurify 3.4.17 / mermaid 12.3.0 / vega 6.4.0 / vega-lite 6.5.0 / vega-embed 7.3.0（オフラインで動くよう同梱。ライセンス同梱） |
 | `dev/` | 開発用（モック、e2e、SQL実行のテスト、サンプルPR作成、スキルのリンク）。デモの題材は作り話です |
 
@@ -80,6 +80,18 @@ sequenceDiagram
 - `-p` モードでは、許可が必要なツールはそもそも拒否される。
 - 分身への指示は `SYSTEM_APPEND`（`--append-system-prompt`）。答え方・図・SQL書式・コード抜粋の書式・「本筋への影響：」の書き方を決めている。
 - 各アクションの指示文は `ACTION_PROMPTS`（question / detail / term / diagram / data / review）。
+
+## 見た目（方眼ノート風）
+
+- 背景はクリーム色の紙に方眼（24px の細い線＋120px の太い線）。本筋のカードは左に赤い margin rule を引く。
+- 読む文章の書体は `--serif` **1行で全体が切り替わる**（本筋・付箋のタイトルと回答・メモ）。UI の文字は `--font`。
+  現在は トッパン文久ゴシック。試した候補は ヒラギノ丸ゴ ProN / Klee / 游教科書体 / 筑紫A・B丸ゴシック。
+  **どれも macOS 同梱のものだけを使う**（フォントを同梱するとリポジトリが重く、ライセンスも面倒なため）。
+- 付箋の地色は淡く、蛍光ペン（`mark.anc`）は紙の上で見える濃さ。**別の変数に分けてある**（`--yellow` と `--yellow-mark` など）。
+  付箋の色をそのままマーカーに使うと、淡くした途端に本筋の線が見えなくなる。
+- 付箋の上辺にはマスキングテープ（`.st-tape`）。線（`#wires`）は破線。
+- 付箋の見出しは2段。1段目に種別とボタン、2段目にタイトルを全幅で置く（`order` で入れ替え）。
+  1段に詰めるとボタンに幅を取られ、タイトルが細い列に折り返して四角い塊になる。
 
 ## 画面（`app.js`）
 

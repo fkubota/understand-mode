@@ -70,7 +70,7 @@ async function init() {
     }
   });
   autoRun = !!data.autoRun;
-  $('#project').textContent = data.project ? `プロジェクト：${data.project}` : '';
+  $('#project').textContent = data.title || (data.project ? `プロジェクト：${data.project}` : '');
   if (!data.hasSession) $('#project').textContent += '（メインのセッションが見つかりません）';
   restore();
   applyView();
@@ -394,6 +394,7 @@ function renderSticky(st, skipWires) {
   box.style.display = isHidden(st) ? 'none' : '';
   box.style.width = st.folded || !st.w ? '' : st.w + 'px';
   box.innerHTML = '';
+  box.append(el('div', 'st-tape')); // 上辺に貼ったテープ
 
   // ヘッダー
   const head = el('div', 'st-head');
