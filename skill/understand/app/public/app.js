@@ -497,7 +497,7 @@ function renderMessage(st, m) {
       spec.width = 'container';
       spec.autosize = { type: 'fit', contains: 'padding' };
       if (!spec.height) spec.height = 220;
-      spec.$schema = spec.$schema || 'https://vega.github.io/schema/vega-lite/v5.json';
+      spec.$schema = spec.$schema || 'https://vega.github.io/schema/vega-lite/v6.json';
       vegaEmbed(box, spec, { actions: false, renderer: 'svg' })
         .then(({ view }) => {
           box.title = '点や棒をクリックすると、その値について質問できます';

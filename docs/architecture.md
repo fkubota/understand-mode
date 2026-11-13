@@ -35,7 +35,7 @@ sequenceDiagram
 | `skill/understand/pr-guide.md` | 依頼文がPR・ブランチのときの、説明文書の作り方 |
 | `skill/understand/app/server.js` | ローカルサーバー。依存パッケージなし（Node 18+ 標準のみ）。設定ファイルを持たない |
 | `skill/understand/app/public/` | 画面（素の JS。ビルドなし） |
-| `skill/understand/app/public/vendor/` | marked 12.0.2 / DOMPurify 3.1.6 / mermaid 10.9.1 / vega 5.30.0 / vega-lite 5.21.0 / vega-embed 6.26.0（オフラインで動くよう同梱。ライセンス同梱） |
+| `skill/understand/app/public/vendor/` | marked 12.0.2 / DOMPurify 3.4.17 / mermaid 12.3.0 / vega 6.4.0 / vega-lite 6.5.0 / vega-embed 7.3.0（オフラインで動くよう同梱。ライセンス同梱） |
 | `dev/` | 開発用（モック、e2e、SQL実行のテスト、サンプルPR作成、スキルのリンク）。デモの題材は作り話です |
 
 ## 作業フォルダ `<DIR>`
@@ -105,6 +105,27 @@ Sticky = {
 - 本筋のコードは常に行番号付き。選択すると「`file.py 12〜19行目`」を質問に添える。
 - 付箋の出どころの文には `mark.anc` を付け、そこから付箋へ線（SVG の曲線）を引く。描き直すたびに `rehighlight` で付け直す。
 - 自動でたたむ：`focusSticky` で、対象と祖先・影響あり・作業中以外をたたむ。
+
+## 同梱ライブラリの更新
+
+オフラインで動かすために `vendor/` へ固定版を置いている。そのぶん脆弱性の修正が自動では入らないので、ときどき確かめる。
+
+```bash
+mkdir /tmp/va && cd /tmp/va
+npm init -y && npm i dompurify marked mermaid vega vega-lite vega-embed
+npm audit                      # 0 件になる組み合わせを探す
+```
+
+見つかったら配布ファイルとライセンスを写して、`npm run mock` と `npm run test:e2e` で図とグラフが描けることを確かめる。
+
+| ライブラリ | 写すファイル |
+| --- | --- |
+| dompurify | `dist/purify.min.js` |
+| marked | `marked.min.js` |
+| mermaid | `dist/mermaid.min.js` |
+| vega / vega-lite / vega-embed | `build/<名前>.min.js` |
+
+vega-lite のメジャーを上げたら、`app.js` の `$schema` の既定値（`.../vega-lite/v6.json`）も合わせること。
 
 ## 開発の回し方
 
