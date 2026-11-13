@@ -427,7 +427,7 @@ function renderSticky(st, skipWires) {
   }
 
   const body = el('div', 'st-body');
-  if (st.h) body.style.maxHeight = st.h + 'px';
+  applyBodyHeight(body, st);
   if (st.type === 'memo') {
     const ta = el('textarea', 'memo-edit');
     ta.placeholder = '自分の言葉でまとめる…';
@@ -727,38 +727,56 @@ function drawWires() {
 }
 
 // ---------------- ドラッグ ----------------
-// 右下のつまみで、付箋の大きさを変える。ダブルクリックで既定に戻す
+// 付箋の大きさを変えるつまみを3つ付ける。
+//   右の辺 → 横だけ / 下の辺 → 縦だけ / 右下の角 → 両方
+// どれもダブルクリックで既定に戻す。
 function attachResize(box, st) {
-  const grip = el('div', 'st-resize');
-  grip.title = 'ドラッグで大きさを変える（ダブルクリックで元に戻す）';
-  grip.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); e.stopPropagation();
-    const body = box.querySelector('.st-body');
-    const start = { x: e.clientX, y: e.clientY, w: box.offsetWidth, h: body ? body.offsetHeight : 0 };
-    const mv = (ev) => {
-      st.w = Math.max(280, Math.round(start.w + (ev.clientX - start.x) / S.zoom));
-      box.style.width = st.w + 'px';
-      if (body) {
-        st.h = Math.max(120, Math.round(start.h + (ev.clientY - start.y) / S.zoom));
-        body.style.maxHeight = st.h + 'px';
-      }
-      drawWires();
-    };
-    const up = () => {
-      window.removeEventListener('mousemove', mv);
-      window.removeEventListener('mouseup', up);
-      save(); drawWires();
-    };
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
-  });
-  grip.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    delete st.w; delete st.h;
-    save(); renderAll();
-  });
-  box.append(grip);
+  const body = () => box.querySelector('.st-body');
+  const make = (cls, axis, title) => {
+    const grip = el('div', cls);
+    grip.title = title + '（ダブルクリックで元に戻す）';
+    grip.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const b = body();
+      const start = { x: e.clientX, y: e.clientY, w: box.offsetWidth, h: b ? b.offsetHeight : 0 };
+      const mv = (ev) => {
+        if (axis !== 'y') {
+          st.w = Math.max(280, Math.round(start.w + (ev.clientX - start.x) / S.zoom));
+          box.style.width = st.w + 'px';
+        }
+        if (axis !== 'x' && b) {
+          st.h = Math.max(100, Math.round(start.h + (ev.clientY - start.y) / S.zoom));
+          applyBodyHeight(b, st);
+        }
+        drawWires();
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', mv);
+        window.removeEventListener('mouseup', up);
+        save(); drawWires();
+      };
+      window.addEventListener('mousemove', mv);
+      window.addEventListener('mouseup', up);
+    });
+    grip.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      if (axis !== 'y') delete st.w;
+      if (axis !== 'x') delete st.h;
+      save(); renderAll();
+    });
+    box.append(grip);
+  };
+  make('st-resize-x', 'x', '横幅を変える');
+  make('st-resize-y', 'y', '高さを変える');
+  make('st-resize', 'both', '大きさを変える');
+}
+
+// 高さを指定されたら、その高さの箱にして中をスクロールさせる。
+// 指定がなければ既定の上限まで内容なりに伸びる。
+function applyBodyHeight(bodyEl, st) {
+  if (st.h) { bodyEl.style.height = st.h + 'px'; bodyEl.style.maxHeight = 'none'; }
+  else { bodyEl.style.height = ''; bodyEl.style.maxHeight = ''; }
 }
 
 function attachDrag(handle, st, onClick) {

@@ -148,8 +148,17 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
     await page.mouse.up();
     await page.waitForTimeout(300);
     const after = await page.evaluate(() => document.querySelector('[data-resize-target]').offsetWidth);
-    const savedW = await page.evaluate(() => Object.values(JSON.parse(sessionStorage.getItem('understand-state') || '{}').stickies || {}).some((s) => s.w));
-    if (after <= pick.width || !savedW) errors.push(`大きさが変えられない: ${pick.width} → ${after} / 保存=${savedW}`);
+    const saved = await page.evaluate(() => Object.values(JSON.parse(sessionStorage.getItem('understand-state') || '{}').stickies || {}).filter((s) => s.w && s.h).length);
+    if (after <= pick.width || !saved) errors.push(`大きさが変えられない: ${pick.width} → ${after} / 幅と高さの保存=${saved}`);
+
+    // 右の辺は横だけ、下の辺は縦だけ動くこと
+    const axisCheck = await page.evaluate(() => {
+      const st = document.querySelector('[data-resize-target]');
+      const b = st.querySelector('.st-body');
+      return { hasX: !!st.querySelector('.st-resize-x'), hasY: !!st.querySelector('.st-resize-y'), bodyHeight: b.style.height };
+    });
+    if (!axisCheck.hasX || !axisCheck.hasY) errors.push(`縦横のつまみがない: ${JSON.stringify(axisCheck)}`);
+    if (!axisCheck.bodyHeight) errors.push('高さが本文に反映されていない');
   }
   await page.screenshot({ path: `${OUT}/6-arranged.png` });
 

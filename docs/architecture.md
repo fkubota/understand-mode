@@ -91,7 +91,7 @@ Sticky = {
   id, type,            // question | detail | term | diagram | data | review | memo
   parent,              // 'main' | 親の付箋ID | null（メモ付箋）
   title, anchorText, anchorY, code, lines,   // 選んだ文と位置、コードなら行番号
-  x, y, w, h, folded, impact,   // w/h は右下のつまみで変えたとき
+  x, y, w, h, folded, impact,   // w/h はつまみで変えたとき。h があれば本文を固定高＋スクロールにする
   sessionId,           // この付箋の分岐セッション
   messages: [{role: 'user'|'assistant'|'error', text, kind?: 'result', at?, sql?, ranSql?: []}],
   memo, busy

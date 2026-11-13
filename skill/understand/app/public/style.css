@@ -83,7 +83,7 @@ mark.anc.impact { background: var(--pink); border-color: var(--coral); }
 .st-btn { flex: none; font-size: 11px; font-weight: 700; padding: 4px 8px; border-radius: 6px; border: 1.5px solid rgba(27,46,114,.25); background: rgba(255,255,255,.7); color: var(--navy); }
 .st-btn.on { background: var(--coral); color: #fff; border-color: var(--coral); }
 .st-anchor { margin: 0 14px 8px; font-size: 12px; color: var(--ink-soft); line-height: 1.6; border-left: 3px solid rgba(27,46,114,.2); padding-left: 8px; max-height: 3.2em; overflow: hidden; }
-.st-body { padding: 4px 14px 10px; max-height: 460px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.st-body { padding: 4px 14px 10px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .msg { padding: 10px 12px; border-radius: 10px; font-size: 13px; }
 .msg.user { align-self: flex-end; max-width: 88%; background: var(--navy); color: #fff; line-height: 1.7; white-space: pre-wrap; }
 .msg.assistant { background: #fff; border: 1.5px solid rgba(27,46,114,.12); }
@@ -100,7 +100,11 @@ mark.anc.impact { background: var(--pink); border-color: var(--coral); }
 .st-resize { position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; cursor: nwse-resize;
   background: linear-gradient(135deg, transparent 50%, rgba(27,46,114,.28) 50%, rgba(27,46,114,.28) 62%, transparent 62%,
               transparent 72%, rgba(27,46,114,.28) 72%, rgba(27,46,114,.28) 84%, transparent 84%); border-radius: 0 0 6px 0; }
-.sticky.folded .st-resize { display: none; }
+/* 右の辺＝横だけ、下の辺＝縦だけ */
+.st-resize-x { position: absolute; right: 0; top: 44px; bottom: 18px; width: 7px; cursor: ew-resize; }
+.st-resize-y { position: absolute; left: 18px; right: 18px; bottom: 0; height: 7px; cursor: ns-resize; }
+.st-resize-x:hover, .st-resize-y:hover { background: rgba(27,46,114,.16); }
+.sticky.folded .st-resize, .sticky.folded .st-resize-x, .sticky.folded .st-resize-y { display: none; }
 
 .memo-edit { width: 100%; min-height: 90px; resize: vertical; font-family: inherit; font-size: 13px; line-height: 1.7; border: 0; background: transparent; color: var(--ink); outline: none; }
 
