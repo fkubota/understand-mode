@@ -64,7 +64,7 @@ sequenceDiagram
 - 本筋から作った付箋：メインのセッションから分岐
 - 付箋の続きの質問：その付箋のセッションに追加
 - 子付箋：親の付箋のセッションから分岐（親の寄り道の文脈を引き継ぐ）
-- 終了時、`createdSessions` に記録した ID の `~/.claude/projects/<cwdのスラッグ>/<id>.jsonl` を削除（`keepForkedSessions: true` で残せる）
+- 終了時、`createdSessions` に記録した ID の `~/.claude/projects/<cwdのスラッグ>/<id>.jsonl` を削除する（残す手段は用意しない）
 
 ### Claude 呼び出しの安全策
 

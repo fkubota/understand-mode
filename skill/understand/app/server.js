@@ -18,12 +18,14 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const CLAUDE_BIN = process.env.UNDERSTAND_CLAUDE_BIN || 'claude';
 
 // 設定ファイルは持たない。モデルも道具もSQLの書き方も、分身がメインの文脈から引き継ぐ。
-// ここにあるのは、アプリがユーザーにした約束を守るための値だけ。
+// 変えられるのは待ち時間だけ。重い調べものをさせるときに伸ばす。
+const TIMEOUT_SEC = Number(process.env.UNDERSTAND_TIMEOUT_SEC) || 300;
+
+// 以下はアプリがユーザーにした約束なので、変えられないようにしている。
 // 承認前は、ファイル編集もコマンド実行もさせない
 const ASK_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
 // 承認して実行するときも、編集だけは禁じる。許可は足さない（その人の普段の許可に従う）
 const RUN_DISALLOWED = ['Edit', 'Write', 'NotebookEdit'];
-const TIMEOUT_SEC = 300;
 let mainSessionId = (args.session && !args.session.includes('${')) ? args.session : findLatestSession(PROJECT_CWD);
 
 function parseArgs(argv) {
@@ -58,7 +60,6 @@ function findLatestSession(cwd) {
 // 「理解したらログは捨てる」方針なので、このアプリが分岐で作ったセッションの記録だけを削除する（メインには触れない）
 const createdSessions = new Set();
 function cleanupForkedSessions() {
-  if (process.env.UNDERSTAND_KEEP_SESSIONS) return; // 開発中に寄り道のログを見たいときだけ
   const dir = path.join(os.homedir(), '.claude', 'projects', PROJECT_CWD.replace(/[^A-Za-z0-9]/g, '-'));
   for (const id of createdSessions) {
     if (!/^[0-9a-f-]{36}$/.test(id) || id === mainSessionId) continue;
