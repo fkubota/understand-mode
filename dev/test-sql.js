@@ -32,6 +32,7 @@ if (process.env.FAKE_CLAUDE_DUMP) {
     allowedTools: listAt('--allowedTools'),
     disallowedTools: listAt('--disallowedTools'),
     permissionMode: listAt('--permission-mode'),
+    effort: listAt('--effort'),
     pgpassword: process.env.PGPASSWORD || null,
   }));
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: 'ok', session_id: 'fake-session', total_cost_usd: 0 }));
@@ -120,6 +121,7 @@ function rawRequest(s, host, body) {
     ok('SQLはそのまま渡る', d.prompt.includes('テスト"店"'), d.prompt.slice(-200));
     ok('編集だけは禁止したまま', JSON.stringify(d.disallowedTools) === '["Edit","Write","NotebookEdit"]', JSON.stringify(d.disallowedTools));
     ok('出力の約束は伝えている', d.prompt.includes('vega-lite') && d.prompt.includes('columns'));
+    ok('思考量は一番軽いものを渡す', JSON.stringify(d.effort) === '["low"]', JSON.stringify(d.effort));
     s.stop();
   }
 

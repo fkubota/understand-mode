@@ -27,6 +27,10 @@ let PORT = 0; // listen してから決まる
 // 変えられるのは待ち時間だけ。重い調べものをさせるときに伸ばす。
 const TIMEOUT_SEC = Number(process.env.UNDERSTAND_TIMEOUT_SEC) || 300;
 
+// 寄り道は一番軽い思考量で回す。メインと同じモデルのまま、effort だけ落とす。
+// 深く考えさせたいのはメインの仕事で、ここは「わからないところを聞く」ための場所なので。
+const FORK_EFFORT = 'low';
+
 // 以下はアプリがユーザーにした約束なので、変えられないようにしている。
 // 承認前は、ファイル編集もコマンド実行もさせない
 const ASK_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
@@ -197,6 +201,7 @@ function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, append
     if (appendSystem) cmd.push('--append-system-prompt', appendSystem);
     if (allowedTools && allowedTools.length) cmd.push('--allowedTools', ...allowedTools);
     if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
+    cmd.push('--effort', FORK_EFFORT);
     // メインが確認なしなら分身も合わせる。禁止したツールは、このモードでも使えないままになる
     if (matchMainMode && AUTO_RUN) cmd.push('--permission-mode', 'bypassPermissions');
 
@@ -354,6 +359,7 @@ server.listen(Number(args.port || 0), '127.0.0.1', () => {
   console.log(`メインのセッション: ${mainSessionId || '(見つかりません)'}`);
   console.log(`分身を動かす場所: ${SPAWN_CWD}`);
   console.log(`メインの権限モード: ${MAIN_MODE || '(分かりません)'}${AUTO_RUN ? ' → SQLは確認なしで実行します' : ''}`);
+  console.log(`分身の思考量: ${FORK_EFFORT}`);
   if (!args['no-open']) openBrowser(url);
 });
 

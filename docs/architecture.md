@@ -69,6 +69,7 @@ sequenceDiagram
 
 ### Claude 呼び出しの安全策
 
+- 分身は `--effort low` で動かす（`FORK_EFFORT`）。モデルはメインのまま。深く考えるのはメインの仕事で、寄り道は軽く回す。レビュー付箋の切れ味は落ちるので、戻したくなったらここを変える。
 - 質問時は `askDisallowedTools`（Edit / Write / NotebookEdit / Bash）を禁止。編集と、承認前のSQL実行を防ぐ。
 - SQL実行時は `Edit` / `Write` / `NotebookEdit` だけ禁止し、許可は足さない。何で実行するかはその人の環境に委ねる。
 - SQLは `readOnlyError()` で検査し、`select`／`with` で始まる1文だけを通す。書き込みや複数文は、Claudeを呼ぶ前に弾く。
