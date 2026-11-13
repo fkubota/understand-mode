@@ -15,8 +15,15 @@ const args = parseArgs(process.argv.slice(2));
 const WORK_DIR = path.resolve(args.dir || fs.mkdtempSync(path.join(os.tmpdir(), 'understand-')));
 const PROJECT_CWD = path.resolve(args.cwd || process.cwd());
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const config = loadConfig();
-const CLAUDE_BIN = process.env.UNDERSTAND_CLAUDE_BIN || config.claudeBin || 'claude';
+const CLAUDE_BIN = process.env.UNDERSTAND_CLAUDE_BIN || 'claude';
+
+// 設定ファイルは持たない。モデルも道具もSQLの書き方も、分身がメインの文脈から引き継ぐ。
+// ここにあるのは、アプリがユーザーにした約束を守るための値だけ。
+// 承認前は、ファイル編集もコマンド実行もさせない
+const ASK_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
+// 承認して実行するときも、編集だけは禁じる。許可は足さない（その人の普段の許可に従う）
+const RUN_DISALLOWED = ['Edit', 'Write', 'NotebookEdit'];
+const TIMEOUT_SEC = 300;
 let mainSessionId = (args.session && !args.session.includes('${')) ? args.session : findLatestSession(PROJECT_CWD);
 
 function parseArgs(argv) {
@@ -31,26 +38,6 @@ function parseArgs(argv) {
     }
   }
   return out;
-}
-
-function loadConfig() {
-  const defaults = {
-    // 寄り道の質問に使うモデル（空ならメインと同じ）。例: "sonnet"
-    model: '',
-    // 寄り道中に絶対に使わせないツール（ファイル編集と、承認前のSQL実行を防ぐ）
-    askDisallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Bash'],
-    // 分身に守らせるSQLの書き方（流儀があれば書く。空なら何も指示しない）
-    sqlStyle: '',
-    timeoutSec: 300,
-    // true にすると、閉じたあとも寄り道のセッション記録を残す
-    keepForkedSessions: false,
-  };
-  try {
-    const user = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
-    return Object.assign(defaults, user);
-  } catch (_) {
-    return defaults;
-  }
 }
 
 // ~/.claude/projects/<cwdのスラッグ>/ の中で一番新しいセッションを探す（セッションIDが渡されなかったときの保険）
@@ -71,7 +58,7 @@ function findLatestSession(cwd) {
 // 「理解したらログは捨てる」方針なので、このアプリが分岐で作ったセッションの記録だけを削除する（メインには触れない）
 const createdSessions = new Set();
 function cleanupForkedSessions() {
-  if (config.keepForkedSessions) return;
+  if (process.env.UNDERSTAND_KEEP_SESSIONS) return; // 開発中に寄り道のログを見たいときだけ
   const dir = path.join(os.homedir(), '.claude', 'projects', PROJECT_CWD.replace(/[^A-Za-z0-9]/g, '-'));
   for (const id of createdSessions) {
     if (!/^[0-9a-f-]{36}$/.test(id) || id === mainSessionId) continue;
@@ -91,7 +78,7 @@ const SYSTEM_APPEND = [
   '説明にコードが必要なときは、必要な部分だけ（15行以内）を載せてください。必ずReadツールなどで実際のファイルを読んでから、そのままの内容を写すこと（記憶で書かない）。',
   'コードを載せるときの見出し行は「~~~~言語名 ファイルパス:開始行番号」にしてください（例：~~~~python src/accuracy.py:12）。差分なら「~~~~diff ファイルパス」。',
   '本筋の記述に誤りや見直すべき点を見つけたら、最後に一文で「本筋への影響：…」と書いてください。',
-].concat(config.sqlStyle ? ['SQLの書き方：' + config.sqlStyle] : []).join('\n');
+].join('\n');
 
 const target = (anchor) => `\n\n【対象】\n${anchor}`;
 const ACTION_PROMPTS = {
@@ -125,18 +112,17 @@ function readOnlyError(sql) {
   return null;
 }
 
-function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem, model }) {
+function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem }) {
   return new Promise((resolve) => {
     const cmd = ['-p', prompt, '--output-format', 'json'];
     if (resume) { cmd.push('--resume', resume); if (fork) cmd.push('--fork-session'); }
     if (appendSystem) cmd.push('--append-system-prompt', appendSystem);
     if (allowedTools && allowedTools.length) cmd.push('--allowedTools', ...allowedTools);
     if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
-    if (model) cmd.push('--model', model);
 
     const child = spawn(CLAUDE_BIN, cmd, { cwd: PROJECT_CWD, env: process.env });
     let stdout = '', stderr = '';
-    const timer = setTimeout(() => child.kill('SIGTERM'), config.timeoutSec * 1000);
+    const timer = setTimeout(() => child.kill('SIGTERM'), TIMEOUT_SEC * 1000);
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
     child.on('error', err => { clearTimeout(timer); resolve({ ok: false, error: `Claudeを起動できませんでした: ${err.message}` }); });
@@ -192,8 +178,7 @@ const server = http.createServer(async (req, res) => {
         // 付箋の最初の質問は親（本筋 or 親の付箋）から分岐する。続きの質問はその付箋のセッションに積む
         fork: !b.continueSession,
         appendSystem: SYSTEM_APPEND,
-        disallowedTools: config.askDisallowedTools,
-        model: config.model,
+        disallowedTools: ASK_DISALLOWED,
       });
       return send(res, 200, result);
     }
@@ -222,8 +207,7 @@ const server = http.createServer(async (req, res) => {
         fork: false,
         appendSystem: SYSTEM_APPEND,
         // 実行の許可は、その人が普段 Claude Code に与えている設定に従う
-        disallowedTools: ['Edit', 'Write', 'NotebookEdit'],
-        model: config.model,
+        disallowedTools: RUN_DISALLOWED,
       });
       return send(res, 200, result);
     }
@@ -237,7 +221,7 @@ const server = http.createServer(async (req, res) => {
         '',
         b.notes || '',
       ].join('\n');
-      const result = await runClaude({ prompt, disallowedTools: config.askDisallowedTools, model: config.model || 'sonnet' });
+      const result = await runClaude({ prompt, disallowedTools: ASK_DISALLOWED });
       return send(res, 200, result);
     }
 

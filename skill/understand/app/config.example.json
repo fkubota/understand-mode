@@ -1,7 +1,0 @@
-{
-  "model": "",
-  "askDisallowedTools": ["Edit", "Write", "NotebookEdit", "Bash"],
-  "sqlStyle": "",
-  "timeoutSec": 300,
-  "keepForkedSessions": false
-}

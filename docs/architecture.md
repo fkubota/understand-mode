@@ -33,10 +33,9 @@ sequenceDiagram
 | --- | --- |
 | `skill/understand/SKILL.md` | Claude Code のスキル本体。起動と「終わった」後の手順。`${CLAUDE_SKILL_DIR}` と `${CLAUDE_SESSION_ID}` を使う |
 | `skill/understand/pr-guide.md` | 依頼文がPR・ブランチのときの、説明文書の作り方 |
-| `skill/understand/app/server.js` | ローカルサーバー。依存パッケージなし（Node 18+ 標準のみ） |
+| `skill/understand/app/server.js` | ローカルサーバー。依存パッケージなし（Node 18+ 標準のみ）。設定ファイルを持たない |
 | `skill/understand/app/public/` | 画面（素の JS。ビルドなし） |
 | `skill/understand/app/public/vendor/` | marked 12.0.2 / DOMPurify 3.1.6 / mermaid 10.9.1 / vega 5.30.0 / vega-lite 5.21.0 / vega-embed 6.26.0（オフラインで動くよう同梱。ライセンス同梱） |
-| `skill/understand/app/config.example.json` | 設定のひな形。インストール時に `config.json` にコピー |
 | `dev/` | 開発用（モック、e2e、SQL実行のテスト、サンプルPR作成、スキルのリンク）。デモの題材は作り話です |
 
 ## 作業フォルダ `<DIR>`

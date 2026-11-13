@@ -15,23 +15,9 @@ if [ "${NODE_MAJOR}" -lt 18 ]; then
   exit 1
 fi
 
-# 既存の設定ファイルは残す
-KEEP_CONFIG=""
-if [ -f "${DEST}/app/config.json" ]; then
-  KEEP_CONFIG="$(mktemp)"
-  cp "${DEST}/app/config.json" "${KEEP_CONFIG}"
-fi
-
 mkdir -p "${HOME}/.claude/skills"
 rm -rf "${DEST}"
 cp -R "${HERE}/skill/understand" "${DEST}"
-
-if [ -n "${KEEP_CONFIG}" ]; then
-  cp "${KEEP_CONFIG}" "${DEST}/app/config.json"
-  rm -f "${KEEP_CONFIG}"
-else
-  cp "${DEST}/app/config.example.json" "${DEST}/app/config.json"
-fi
 
 echo "インストールしました：${DEST}"
 echo "Claude Code を開き直すと /understand が使えます。"

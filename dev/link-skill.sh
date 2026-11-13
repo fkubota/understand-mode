@@ -10,5 +10,4 @@ if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
   echo "既存のインストールを退避しました: ${DEST}.bak.*"
 fi
 ln -sfn "$ROOT/skill/understand" "$DEST"
-[ -f "$ROOT/skill/understand/app/config.json" ] || cp "$ROOT/skill/understand/app/config.example.json" "$ROOT/skill/understand/app/config.json"
 echo "リンクしました: $DEST -> $ROOT/skill/understand"
