@@ -56,7 +56,7 @@ sequenceDiagram
 | --- | --- |
 | `GET /api/init` | `main.md`・題名・プロジェクト名・セッションの有無 |
 | `POST /api/ask` | 付箋の質問。初回は `{action, anchor, question, sessionId(親), continueSession:false}` で親から**分岐**。続きは `{followUp, sessionId(この付箋), continueSession:true}` で同じセッションに積む |
-| `POST /api/runsql` | 「承認して実行」。参照だけのSQLか検査し、トンネルの疎通を確かめ、SQLをファイルに書いて `psql ... -f` を実行させる。`sqlAllowedTools`（既定 `Bash(psql:*)`）だけを許可。パスワードは環境変数 `PGPASSWORD` で子プロセスに渡す（プロンプトには入れない）。` ```json {columns, rows}` と ` ```vega-lite`（data は書かせない）を返させる |
+| `POST /api/runsql` | 「承認して実行」。参照だけのSQLか検査し、「いつものやり方で実行して」と頼む。**どの道具を使うかは指定しない**（`--allowedTools` を渡さないので、その人が普段 Claude Code に与えている許可がそのまま使われる）。` ```json {columns, rows}` と ` ```vega-lite`（data は書かせない）を返させる |
 | `POST /api/draft` | 返す文の下書き。分岐せず、メモだけを渡して軽いモデル（既定 sonnet）で作る |
 | `POST /api/return` | `return.md` を書き、このサーバーが作った分岐セッションの `.jsonl` を削除して終了 |
 
@@ -70,10 +70,9 @@ sequenceDiagram
 ### Claude 呼び出しの安全策
 
 - 質問時は `askDisallowedTools`（Edit / Write / NotebookEdit / Bash）を禁止。編集と、承認前のSQL実行を防ぐ。
-- SQL実行時だけ `Bash(psql:*)` を許可する。psql 以外のコマンドは通らない。
-- SQLは `readOnlyError()` で検査し、`select`／`with` で始まる1文だけを通す。書き込みや複数文は実行前に弾く。
-- SQLは作業フォルダの `.sql` ファイルに書いて `-f` で渡す。クォートが崩れず、Claudeに書き換えられる余地もない。実行後に消す。
-- トンネルの疎通は `net.connect` で確かめる（Bashを増やさないため）。
+- SQL実行時は `Edit` / `Write` / `NotebookEdit` だけ禁止し、許可は足さない。何で実行するかはその人の環境に委ねる。
+- SQLは `readOnlyError()` で検査し、`select`／`with` で始まる1文だけを通す。書き込みや複数文は、Claudeを呼ぶ前に弾く。
+- **アプリは接続先も道具も知らない。** 分身はメインの文脈を引き継いでいるので、この環境でのデータの取り方はすでに知っている。アプリが指定すると、その知識を上書きして邪魔になる。
 - `-p` モードでは、許可が必要なツールはそもそも拒否される。
 - 分身への指示は `SYSTEM_APPEND`（`--append-system-prompt`）。答え方・図・SQL書式・コード抜粋の書式・「本筋への影響：」の書き方を決めている。
 - 各アクションの指示文は `ACTION_PROMPTS`（question / detail / term / diagram / data / review）。
@@ -112,7 +111,7 @@ Sticky = {
 | --- | --- |
 | 費用をかけずにUIを触る | `npm run mock`（偽の claude で起動。`NO_OPEN=1` でブラウザを開かない） |
 | 一通りの操作を自動で確認 | 別の端末で `npm run mock` を動かしたまま `npm i && npm run test:e2e` |
-| SQL実行まわりを確認 | `npm run test:sql`（Claudeもトンネルも使わない。パスワードの渡り方、参照以外のSQLの排除、トンネル未接続時の停止を見る） |
+| SQL実行まわりを確認 | `npm run test:sql`（Claudeもデータベースも使わない。道具を指定していないこと、承認前は実行させないこと、参照以外のSQLを弾くことを見る） |
 | 本物の Claude Code で試す | `npm run link` で `~/.claude/skills/understand` にリンクし、Claude Code を開き直す |
 | PRモードを試す | `npm run pr-demo` でサンプルリポジトリを作り、そこで `/understand このPRを理解したい` |
 

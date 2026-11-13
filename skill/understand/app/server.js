@@ -5,7 +5,6 @@
 
 'use strict';
 const http = require('http');
-const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -38,15 +37,8 @@ function loadConfig() {
   const defaults = {
     // 寄り道の質問に使うモデル（空ならメインと同じ）。例: "sonnet"
     model: '',
-    // 寄り道中に絶対に使わせないツール（ファイル編集や、承認前のSQL実行を防ぐ）
+    // 寄り道中に絶対に使わせないツール（ファイル編集と、承認前のSQL実行を防ぐ）
     askDisallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Bash'],
-    // SQLの実行を承認したときだけ許可するツール。psql だけに絞っている
-    sqlAllowedTools: ['Bash(psql:*)'],
-    // psql のつなぎ先。画面の「DB接続」で入力するときの既定値になる
-    dbHost: 'localhost',
-    dbPort: 5432,
-    dbUser: '',
-    dbName: '',
     // 分身に守らせるSQLの書き方（流儀があれば書く。空なら何も指示しない）
     sqlStyle: '',
     timeoutSec: 300,
@@ -78,7 +70,6 @@ function findLatestSession(cwd) {
 // ---------- 寄り道で作ったセッションの後片付け ----------
 // 「理解したらログは捨てる」方針なので、このアプリが分岐で作ったセッションの記録だけを削除する（メインには触れない）
 const createdSessions = new Set();
-let sqlSeq = 0;
 function cleanupForkedSessions() {
   if (config.keepForkedSessions) return;
   const dir = path.join(os.homedir(), '.claude', 'projects', PROJECT_CWD.replace(/[^A-Za-z0-9]/g, '-'));
@@ -119,17 +110,7 @@ const ACTION_PROMPTS = {
 };
 
 // ---------- SQL実行の下ごしらえ ----------
-// DBに届くかを、Nodeから直接つないで確かめる（Bashを使わずに済ませる）
-function checkTunnel(host, port) {
-  return new Promise((resolve) => {
-    const sock = net.connect({ host, port }, () => { sock.destroy(); resolve(true); });
-    sock.setTimeout(2000);
-    sock.on('timeout', () => { sock.destroy(); resolve(false); });
-    sock.on('error', () => resolve(false));
-  });
-}
-
-// 承認済みでも、参照以外のSQLは実行させない（psqlは接続ユーザーの権限で書き込みもできてしまうため）
+// 承認済みでも、参照以外のSQLは実行させない（ボタンの約束はアプリが守る。道具が何かは問わない）
 function readOnlyError(sql) {
   const s = String(sql || '')
     .replace(/--[^\n]*/g, ' ')
@@ -144,7 +125,7 @@ function readOnlyError(sql) {
   return null;
 }
 
-function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem, model, env }) {
+function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem, model }) {
   return new Promise((resolve) => {
     const cmd = ['-p', prompt, '--output-format', 'json'];
     if (resume) { cmd.push('--resume', resume); if (fork) cmd.push('--fork-session'); }
@@ -153,8 +134,7 @@ function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, append
     if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
     if (model) cmd.push('--model', model);
 
-    // パスワードはプロンプトではなく環境変数で渡す（会話ログにも ps の出力にも残らない）
-    const child = spawn(CLAUDE_BIN, cmd, { cwd: PROJECT_CWD, env: env ? Object.assign({}, process.env, env) : process.env });
+    const child = spawn(CLAUDE_BIN, cmd, { cwd: PROJECT_CWD, env: process.env });
     let stdout = '', stderr = '';
     const timer = setTimeout(() => child.kill('SIGTERM'), config.timeoutSec * 1000);
     child.stdout.on('data', d => { stdout += d; });
@@ -198,10 +178,7 @@ const server = http.createServer(async (req, res) => {
       const markdown = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : '# 本筋がありません\n\nmain.md が見つかりませんでした。';
       let title = '';
       try { title = fs.readFileSync(path.join(WORK_DIR, 'title.txt'), 'utf8').trim(); } catch (_) {}
-      return send(res, 200, {
-        markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD),
-        db: { host: config.dbHost, port: config.dbPort, user: config.dbUser, name: config.dbName },
-      });
+      return send(res, 200, { markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD) });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/ask') {
@@ -225,40 +202,16 @@ const server = http.createServer(async (req, res) => {
       const b = await readBody(req);
       const bad = readOnlyError(b.sql);
       if (bad) return send(res, 200, { ok: false, error: bad });
-      const conn = {
-        host: (b.host || config.dbHost || 'localhost').trim(),
-        port: Number(b.port) || config.dbPort,
-        user: (b.user || config.dbUser || '').trim(),
-        name: (b.name || config.dbName || '').trim(),
-      };
-      if (!conn.user || !conn.name) return send(res, 200, { ok: false, error: 'DBのユーザー名とデータベース名が未入力です。ツールバーの「DB接続」から入れてください。' });
-      if (!b.password) return send(res, 200, { ok: false, error: 'DBのパスワードが未入力です。ツールバーの「DB接続」から入れてください。' });
-      if (/[^A-Za-z0-9._-]/.test(conn.host + conn.user + conn.name)) {
-        return send(res, 200, { ok: false, error: '接続情報に使えない文字が入っています。英数字と . _ - だけにしてください。' });
-      }
-      if (!process.env.UNDERSTAND_SKIP_TUNNEL_CHECK && !(await checkTunnel(conn.host, conn.port))) {
-        return send(res, 200, { ok: false, error: `${conn.host}:${conn.port} につながりません。DBに届く状態（SSHトンネルなど）にしてから、もう一度実行してください。` });
-      }
-
-      // SQLはファイルに書いて -f で渡す。クォートが崩れず、Claudeに書き換えられる余地もない
-      const sqlPath = path.join(WORK_DIR, `query-${++sqlSeq}.sql`);
-      fs.writeFileSync(sqlPath, String(b.sql).trim().replace(/;\s*$/, '') + '\n');
-      const cmdLine = `psql -h ${conn.host} -p ${conn.port} -U ${conn.user} -d ${conn.name} --csv -f ${sqlPath}`;
+      // どの道具で実行するかは指定しない。メインの文脈を引き継いだ分身が、この環境のやり方で取る
       const prompt = [
-        'ユーザーが次のSQLの実行を承認しました。下のコマンドを、書き換えずにそのまま1回だけ実行してください。',
-        'パスワードは環境変数 PGPASSWORD に入っています。コマンドに書き足さないでください。',
-        '',
-        '```bash',
-        cmdLine,
-        '```',
-        '',
-        '結果はCSV（1行目が列名）で返ります。それをもとに、必ず次の形式で答えてください：',
+        'ユーザーが次のSQLの実行を承認しました。この環境でいつもデータを取っているやり方で、読み取りとして1回だけ実行してください。',
+        'SQLは書き換えずにそのまま実行してください。',
+        '実行できたら、結果を必ず次の形式で返してください：',
         '1. ```json のブロックに {"columns": [...], "rows": [[...], ...]}（最大200行。値は結果のまま）',
         '2. グラフが理解に役立つなら ```vega-lite のブロックに Vega-Lite の spec。dataは {"name": "result"} とし、値は書かないこと（アプリが結果を差し込みます）。フィールド名はcolumnsと同じにすること。',
         '3. 結果から読み取れることを2〜3文で。',
-        '実行できなかった場合は、理由だけを短く書いてください。',
+        '実行できなかった場合は、理由だけを短く書いてください（接続の用意が要るなら、それも一言で）。',
         '',
-        '実行されるSQLは次の内容です（参考。実行はファイル経由で行うこと）：',
         '```sql',
         b.sql,
         '```',
@@ -268,12 +221,10 @@ const server = http.createServer(async (req, res) => {
         resume: b.sessionId,
         fork: false,
         appendSystem: SYSTEM_APPEND,
-        allowedTools: config.sqlAllowedTools,
+        // 実行の許可は、その人が普段 Claude Code に与えている設定に従う
         disallowedTools: ['Edit', 'Write', 'NotebookEdit'],
-        env: { PGPASSWORD: b.password },
         model: config.model,
       });
-      try { fs.rmSync(sqlPath, { force: true }); } catch (_) {}
       return send(res, 200, result);
     }
 

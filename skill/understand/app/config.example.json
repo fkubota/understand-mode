@@ -1,11 +1,6 @@
 {
   "model": "",
   "askDisallowedTools": ["Edit", "Write", "NotebookEdit", "Bash"],
-  "sqlAllowedTools": ["Bash(psql:*)"],
-  "dbHost": "localhost",
-  "dbPort": 5432,
-  "dbUser": "",
-  "dbName": "",
   "sqlStyle": "",
   "timeoutSec": 300,
   "keepForkedSessions": false

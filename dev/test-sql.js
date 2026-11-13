@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// SQL実行まわりの確認（Claudeを呼ばないので費用ゼロ）
-//   1. パスワードがプロンプトに混ざらず、環境変数 PGPASSWORD だけで渡ること
-//   2. 参照以外のSQLが弾かれること
-//   3. DBに届かないときは実行されないこと
-//   4. SQLはファイルに書き出され、コマンドが psql で始まること
+// SQL実行まわりの確認（Claudeもデータベースも使わないので費用ゼロ）
+//   1. 承認して初めて実行され、そのとき道具の指定をしないこと
+//   2. 承認前は、ファイル編集もコマンド実行も禁止のまま渡ること
+//   3. 参照以外のSQLは、Claudeを呼ぶ前に弾くこと
+//   4. SQLは書き換えずにそのままプロンプトへ渡ること
 // 使い方: node dev/test-sql.js
 //
 // このファイルは偽の claude としても動く（FAKE_CLAUDE_DUMP が設定されているとき）。
@@ -17,14 +17,19 @@ const { spawn } = require('child_process');
 // ---------- 偽の claude として動くモード ----------
 if (process.env.FAKE_CLAUDE_DUMP) {
   const argv = process.argv.slice(2);
-  const pi = argv.indexOf('-p');
-  const sqlFile = (argv[pi + 1] || '').match(/-f (\S+\.sql)/);
+  const at = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : null);
+  // --allowedTools / --disallowedTools は値を複数取るので、次の -- まで集める
+  const listAt = (flag) => {
+    if (!argv.includes(flag)) return null;
+    const out = [];
+    for (let i = argv.indexOf(flag) + 1; i < argv.length && !argv[i].startsWith('--'); i++) out.push(argv[i]);
+    return out;
+  };
   fs.writeFileSync(process.env.FAKE_CLAUDE_DUMP, JSON.stringify({
-    prompt: argv[pi + 1] || '',
-    allowedTools: argv.includes('--allowedTools') ? argv[argv.indexOf('--allowedTools') + 1] : null,
-    disallowedTools: argv.includes('--disallowedTools') ? argv[argv.indexOf('--disallowedTools') + 1] : null,
+    prompt: at('-p') || '',
+    allowedTools: listAt('--allowedTools'),
+    disallowedTools: listAt('--disallowedTools'),
     pgpassword: process.env.PGPASSWORD || null,
-    sqlFileContent: sqlFile && fs.existsSync(sqlFile[1]) ? fs.readFileSync(sqlFile[1], 'utf8') : null,
   }));
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: 'ok', session_id: 'fake-session', total_cost_usd: 0 }));
   process.exit(0);
@@ -33,8 +38,6 @@ if (process.env.FAKE_CLAUDE_DUMP) {
 // ---------- 確認を回すモード ----------
 const ROOT = path.join(__dirname, '..');
 const SERVER = path.join(ROOT, 'skill', 'understand', 'app', 'server.js');
-const PASSWORD = 'p@ssw0rd-himitsu-9z';
-const CONN = { host: 'localhost', port: 15432, user: 'reader', name: 'shopdb' };
 
 let failed = 0;
 function ok(name, cond, detail) {
@@ -42,13 +45,13 @@ function ok(name, cond, detail) {
   if (!cond) failed++;
 }
 
-function startServer(extraEnv) {
+function startServer() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'understand-test-'));
   fs.writeFileSync(path.join(dir, 'main.md'), '# テスト\n');
   fs.writeFileSync(path.join(dir, 'title.txt'), 'テスト\n');
   const dump = path.join(dir, 'dump.json');
   const child = spawn(process.execPath, [SERVER, '--dir', dir, '--session', 'test-session', '--cwd', ROOT, '--port', '0', '--no-open'], {
-    env: Object.assign({}, process.env, { UNDERSTAND_CLAUDE_BIN: __filename, FAKE_CLAUDE_DUMP: dump }, extraEnv),
+    env: Object.assign({}, process.env, { UNDERSTAND_CLAUDE_BIN: __filename, FAKE_CLAUDE_DUMP: dump }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return new Promise((resolve, reject) => {
@@ -61,59 +64,59 @@ function startServer(extraEnv) {
   });
 }
 
-const runsql = (base, body) =>
-  fetch(base + '/api/runsql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+const post = (base, route, body) =>
+  fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
 (async () => {
-  console.log('\n1. パスワードの渡り方と、組み立てられるコマンド');
+  console.log('\n1. 承認して実行したとき、道具を指定しないこと');
   {
-    const s = await startServer({ UNDERSTAND_SKIP_TUNNEL_CHECK: '1' });
-    const sql = "select\n    shop_id\n    , count(*) as cnt\nfrom orders\nwhere 1=1\n    and name = 'テスト\"店\"'\ngroup by 1";
-    const r = await runsql(s.base, Object.assign({ sessionId: 'x', sql, password: PASSWORD }, CONN));
+    const s = await startServer();
+    const sql = "select\n    shop_id\n    , count(*) as cnt\nfrom orders\nwhere name = 'テスト\"店\"'\ngroup by 1";
+    const r = await post(s.base, '/api/runsql', { sessionId: 'x', sql });
     ok('実行が通る', r.ok === true, r.error);
     const d = JSON.parse(fs.readFileSync(s.dump, 'utf8'));
-    ok('プロンプトにパスワードが入っていない', !d.prompt.includes(PASSWORD));
-    ok('環境変数 PGPASSWORD で渡っている', d.pgpassword === PASSWORD);
-    ok('許可されるのは psql だけ', d.allowedTools === 'Bash(psql:*)', String(d.allowedTools));
-    ok('Edit/Write は禁止のまま', /Edit/.test(d.disallowedTools || ''), String(d.disallowedTools));
-    ok('コマンドが psql で始まる', /```bash\npsql -h localhost -p 15432 -U reader -d shopdb /.test(d.prompt), d.prompt.slice(0, 200));
-    ok('SQLはファイルに書き出されている', (d.sqlFileContent || '').includes('テスト"店"'), String(d.sqlFileContent));
-    ok('一時SQLファイルは消されている', fs.readdirSync(s.dir).every((f) => !f.endsWith('.sql')), fs.readdirSync(s.dir).join(','));
+    ok('--allowedTools を渡していない', d.allowedTools === null, JSON.stringify(d.allowedTools));
+    ok('道具の名前がプロンプトに出てこない', !/psql|redash|bq |mysql/i.test(d.prompt), d.prompt.slice(0, 120));
+    ok('接続情報を組み立てていない', !/-h localhost|-U |PGPASSWORD/.test(d.prompt), d.prompt.slice(0, 120));
+    ok('パスワードを環境変数で渡していない', d.pgpassword === null);
+    ok('SQLはそのまま渡る', d.prompt.includes('テスト"店"'), d.prompt.slice(-200));
+    ok('編集だけは禁止したまま', JSON.stringify(d.disallowedTools) === '["Edit","Write","NotebookEdit"]', JSON.stringify(d.disallowedTools));
+    ok('出力の約束は伝えている', d.prompt.includes('vega-lite') && d.prompt.includes('columns'));
     s.stop();
   }
 
-  console.log('\n2. 参照以外のSQLを弾く');
+  console.log('\n2. 承認前（ふつうの質問）は、実行させないこと');
   {
-    const s = await startServer({ UNDERSTAND_SKIP_TUNNEL_CHECK: '1' });
+    const s = await startServer();
+    const r = await post(s.base, '/api/ask', { action: 'data', anchor: 'ここ', sessionId: 'x' });
+    ok('質問は通る', r.ok === true, r.error);
+    const d = JSON.parse(fs.readFileSync(s.dump, 'utf8'));
+    ok('Bash が禁止されている', (d.disallowedTools || []).includes('Bash'), JSON.stringify(d.disallowedTools));
+    ok('ファイル編集も禁止されている', (d.disallowedTools || []).includes('Edit'), JSON.stringify(d.disallowedTools));
+    ok('実行せず提案だけ、と伝えている', d.prompt.includes('まだ実行はしないでください'), d.prompt.slice(0, 120));
+    s.stop();
+  }
+
+  console.log('\n3. 参照以外のSQLは、Claudeを呼ぶ前に弾くこと');
+  {
+    const s = await startServer();
     const cases = [
       ['delete 文', 'delete from orders where id = 1', false],
       ['update 文', 'update orders set qty = 0', false],
       ['drop 文', 'drop table orders', false],
       ['複数の文', 'select 1; delete from orders', false],
       ['コメントに隠した書き込み', '-- select 1\ndelete from orders', false],
+      ['空のSQL', '   ', false],
       ['普通の select', 'select 1', true],
       ['with で始まる select', 'with t as (select 1 as a)\nselect * from t', true],
       ['created_at のような列名', 'select created_at from orders', true],
     ];
     for (const [name, sql, shouldPass] of cases) {
-      const r = await runsql(s.base, Object.assign({ sessionId: 'x', sql, password: PASSWORD }, CONN));
+      fs.rmSync(s.dump, { force: true });
+      const r = await post(s.base, '/api/runsql', { sessionId: 'x', sql });
       ok(`${name} → ${shouldPass ? '通る' : '弾く'}`, r.ok === shouldPass, r.error);
+      if (!shouldPass) ok(`${name} → Claudeを呼んでもいない`, !fs.existsSync(s.dump));
     }
-    let r = await runsql(s.base, Object.assign({ sessionId: 'x', sql: 'select 1', password: '' }, CONN));
-    ok('パスワードなしは弾く', r.ok === false, r.error);
-    r = await runsql(s.base, { sessionId: 'x', sql: 'select 1', password: PASSWORD, host: 'localhost', port: 15432 });
-    ok('ユーザー・DB名が未設定だと弾く', r.ok === false && /ユーザー名/.test(r.error || ''), r.error);
-    r = await runsql(s.base, Object.assign({}, CONN, { sessionId: 'x', sql: 'select 1', password: PASSWORD, name: 'db; rm -rf /' }));
-    ok('接続情報への混入を弾く', r.ok === false && /使えない文字/.test(r.error || ''), r.error);
-    s.stop();
-  }
-
-  console.log('\n3. DBに届かないときは実行しない');
-  {
-    const s = await startServer({});
-    const r = await runsql(s.base, Object.assign({}, CONN, { sessionId: 'x', sql: 'select 1', port: 59999, password: PASSWORD }));
-    ok('つながらないポートでは実行しない', r.ok === false && /つながりません/.test(r.error || ''), r.error);
-    ok('Claudeを呼んでもいない', !fs.existsSync(s.dump));
     s.stop();
   }
 

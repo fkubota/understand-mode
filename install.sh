@@ -34,5 +34,4 @@ else
 fi
 
 echo "インストールしました：${DEST}"
-echo "SQL実行を使うなら、${DEST}/app/config.json の dbPort / dbUser / dbName を環境に合わせてください。"
 echo "Claude Code を開き直すと /understand が使えます。"

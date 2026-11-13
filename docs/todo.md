@@ -4,13 +4,16 @@
 
 - [ ] **`gh` を使ったPRモード**：GitHub に接続できない環境で作ったので、ブランチ差分（`git diff main...HEAD`）の代替手順でしか試していない
 - [ ] **Windows**：`openBrowser()` に分岐は書いてあるが、動かしていない
+- [ ] **MCPの道具でSQLを実行する人**：`claude -p` ではMCPサーバーが読み込まれない様子だった。Redash MCP などを使っている人で動くかは未確認
+- [ ] 承認前にMCPの道具を止めきれるか（`--disallowedTools` にワイルドカードが使えるか未確認。コマンド系は `Bash` を禁止して止めている）
 
 ## 確かめ済み（2026-11 時点）
 
 - macOS での起動（`${TMPDIR}` の使用、`open` でのブラウザ起動の分岐、vendor の配信）
 - SQL実行まわり：`node dev/test-sql.js` で、パスワードがプロンプトに混ざらないこと・参照以外のSQLを弾くこと・DBに届かないときは実行しないことを自動確認
 - 実機のPostgreSQL（SSHトンネル越し）に `claude -p` から psql で接続し、結果が返ること
-- `--allowedTools "Bash(psql:*)"` は `-p` モードでも効く。psql は通り、`ls` は `permission_denials` に入って拒否された
+- `claude -p` は、その人が普段 Claude Code に与えている許可をそのまま使う（`--allowedTools` を渡さなくても、許可済みのコマンドは実行できる）
+- `--allowedTools "Bash(psql:*)"` のように絞ると、psql は通り `ls` は `permission_denials` に入って拒否される
 - `claude -p --resume <id> --fork-session` で、メインの文脈を引き継いだ回答が返る。メインの会話記録は変わらない
 - 続きの質問は同じ分岐セッションに積める
 - スキル内の `${CLAUDE_SESSION_ID}` と `${CLAUDE_SKILL_DIR}` は置き換わる

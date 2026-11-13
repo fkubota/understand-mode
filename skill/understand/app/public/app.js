@@ -61,7 +61,6 @@ async function init() {
       numberLines(code);
     }
   });
-  if (data.db) { dbDefaults = Object.assign(dbDefaults, data.db); refreshDbBtn(); }
   $('#project').textContent = data.project ? `プロジェクト：${data.project}` : '';
   if (!data.hasSession) $('#project').textContent += '（メインのセッションが見つかりません）';
   restore();
@@ -334,12 +333,10 @@ async function ask(st, { action, question, followUp }) {
 async function runSql(st, msg, sql) {
   if (st.busy) return;
   if (!st.sessionId) { st.messages.push({ role: 'error', text: 'この付箋にはまだセッションがありません。' }); return renderSticky(st); }
-  const conn = await askDbConn();
-  if (!conn) return; // 接続情報の入力をやめた
   msg.ranSql = (msg.ranSql || []).concat([sql.trim()]);
   st.messages.push({ role: 'user', text: 'このSQLを承認して実行' });
   st.busy = true; setPending(1); renderSticky(st);
-  const r = await post('/api/runsql', { sessionId: st.sessionId, sql, host: conn.host, port: conn.port, user: conn.user, name: conn.name, password: conn.password });
+  const r = await post('/api/runsql', { sessionId: st.sessionId, sql });
   st.busy = false; setPending(-1);
   if (r.ok) { st.sessionId = r.sessionId || st.sessionId; st.messages.push({ role: 'assistant', kind: 'result', at: now(), sql, text: r.text }); }
   else st.messages.push({ role: 'error', text: r.error || 'SQLを実行できませんでした' });
@@ -519,7 +516,7 @@ function renderMessage(st, m) {
   wrap.append(div);
 
   if (m.kind === 'result') {
-    wrap.append(el('div', 'source-line', `出典：Claudeがpsqlで取得した結果（${m.at} に承認して実行）。グラフの値は結果の表から描いています。`));
+    wrap.append(el('div', 'source-line', `出典：Claudeが取得した結果（${m.at} に承認して実行）。グラフの値は結果の表から描いています。`));
   }
 
   // 「本筋への影響：」を見つけたら目立たせる
@@ -724,58 +721,6 @@ function arrange() {
   });
   renderAll();
 }
-
-// ---------------- DBの接続情報 ----------------
-// このタブのメモリにだけ置く。sessionStorage には保存しない（再読み込みで消える）
-let dbConn = null;
-let dbResolve = null;
-let dbDefaults = { host: 'localhost', port: 5432, user: '', name: '' }; // config.json から /api/init で届く
-
-function refreshDbBtn() { $('#btn-db').textContent = dbConn ? `DB接続 ${dbConn.name}` : 'DB接続'; }
-
-function openDbModal(resolve) {
-  dbResolve = resolve || null;
-  const cur = dbConn || dbDefaults;
-  $('#db-host').value = cur.host || 'localhost';
-  $('#db-port').value = cur.port || 5432;
-  $('#db-user').value = cur.user || '';
-  $('#db-name').value = cur.name || '';
-  $('#db-pass').value = '';
-  $('#db-modal').hidden = false;
-  setTimeout(() => ($('#db-user').value ? $('#db-pass') : $('#db-user')).focus(), 0);
-}
-
-function closeDbModal(value) {
-  $('#db-modal').hidden = true;
-  $('#db-pass').value = '';
-  const r = dbResolve; dbResolve = null;
-  if (r) r(value);
-}
-
-// 接続情報がすでにあればそのまま返し、なければ入力を待つ
-function askDbConn() {
-  if (dbConn) return Promise.resolve(dbConn);
-  return new Promise((resolve) => openDbModal(resolve));
-}
-
-$('#btn-db').onclick = () => openDbModal(null);
-$('#btn-db-ok').onclick = () => {
-  const v = (sel) => $(sel).value.trim();
-  if (!v('#db-user') || !v('#db-name')) { alert('ユーザーとデータベース名を入れてください。'); return; }
-  if (!$('#db-pass').value) { alert('パスワードを入れてください。'); return; }
-  dbConn = {
-    host: v('#db-host') || 'localhost',
-    port: Number($('#db-port').value) || 5432,
-    user: v('#db-user'),
-    name: v('#db-name'),
-    password: $('#db-pass').value,
-  };
-  refreshDbBtn();
-  closeDbModal(dbConn);
-};
-$('#btn-db-cancel').onclick = () => closeDbModal(null);
-$('#btn-db-clear').onclick = () => { dbConn = null; refreshDbBtn(); closeDbModal(null); };
-$('#db-modal').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#btn-db-ok').click(); });
 
 // ---------------- ツールバー ----------------
 $('#btn-memo').onclick = () => createSticky('memo', null);

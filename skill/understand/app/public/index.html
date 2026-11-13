@@ -35,7 +35,6 @@
 
 <div id="toolbar" role="toolbar" aria-label="ボードの操作">
   <button id="btn-memo">メモ付箋</button>
-  <button id="btn-db">DB接続</button>
   <button id="btn-arrange">整列</button>
   <button id="btn-home">本筋へ移動</button>
   <button id="btn-zoom-out" aria-label="縮小">－</button>
@@ -51,39 +50,6 @@
   <button data-action="data">データで確かめる</button>
   <button data-action="review">レビュー</button>
   <button data-action="memo">メモ</button>
-</div>
-
-<div id="db-modal" class="modal-backdrop" hidden>
-  <section class="modal narrow" role="dialog" aria-labelledby="db-title">
-    <h1 id="db-title">DBの接続情報</h1>
-    <p class="muted">SQLの実行に使います。DBに届く状態（SSHトンネルなど）は先に用意しておいてください。よく使う値は config.json に書いておくと、ここに最初から入ります。</p>
-    <div class="db-row">
-      <label class="label" for="db-host">ホスト</label>
-      <input id="db-host" type="text" placeholder="localhost">
-    </div>
-    <div class="db-row">
-      <label class="label" for="db-port">ポート</label>
-      <input id="db-port" type="number" placeholder="5432">
-    </div>
-    <div class="db-row">
-      <label class="label" for="db-user">ユーザー</label>
-      <input id="db-user" type="text" autocomplete="off" placeholder="DBのユーザー名">
-    </div>
-    <div class="db-row">
-      <label class="label" for="db-name">データベース</label>
-      <input id="db-name" type="text" autocomplete="off" placeholder="データベース名">
-    </div>
-    <div class="db-row">
-      <label class="label" for="db-pass">パスワード</label>
-      <input id="db-pass" type="password" autocomplete="off" placeholder="DBのパスワード">
-    </div>
-    <p class="muted small">このタブのメモリにだけ置きます。保存はしないので、再読み込みすると消えます。Claudeにパスワードは渡らず、psqlの環境変数として使われます。</p>
-    <div class="row end">
-      <button id="btn-db-clear" class="btn-outline">消す</button>
-      <button id="btn-db-cancel" class="btn-outline">やめる</button>
-      <button id="btn-db-ok" class="btn-primary">決定</button>
-    </div>
-  </section>
 </div>
 
 <div id="return-modal" class="modal-backdrop" hidden>

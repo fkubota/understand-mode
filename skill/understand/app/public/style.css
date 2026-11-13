@@ -145,10 +145,6 @@ details.result > summary { cursor: pointer; font-size: 12px; font-weight: 700; c
 .ret-item.impact { background: var(--pink); }
 .ret-item input { margin-top: 4px; width: 18px; height: 18px; }
 .ret-item strong { color: var(--navy); }
-.modal.narrow { max-width: 440px; }
-.db-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.db-row .label { width: 120px; flex-shrink: 0; }
-.db-row input { flex-grow: 1; min-width: 0; font-family: inherit; font-size: 14px; padding: 10px 12px; border: 2px solid var(--sky-300); border-radius: 10px; color: var(--ink); background: #fff; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 .row.end { justify-content: flex-end; margin: 0; }
 .label { font-size: 14px; font-weight: 700; }

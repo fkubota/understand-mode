@@ -65,13 +65,6 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
   await idle(page);
   await page.screenshot({ path: `${OUT}/4-sql.png` });
   await page.click('.sticky.focused .btn-run');
-  // 初回はDBの接続情報を聞かれる
-  await page.waitForSelector('#db-modal:not([hidden])');
-  await page.fill('#db-user', 'reader');
-  await page.fill('#db-name', 'shopdb');
-  await page.fill('#db-pass', 'dummy-password');
-  await page.screenshot({ path: `${OUT}/4b-db.png` });
-  await page.click('#btn-db-ok');
   await idle(page);
   await page.waitForTimeout(1200);
   await page.screenshot({ path: `${OUT}/5-chart.png` });

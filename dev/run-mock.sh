@@ -11,8 +11,6 @@ cp "$MAIN" "$DIR/main.md"
 echo "サンプル" > "$DIR/title.txt"
 
 echo "作業フォルダ: $DIR"
-# モックではSSHトンネルを張らないので、疎通確認は飛ばす
 UNDERSTAND_CLAUDE_BIN="$ROOT/dev/mock-claude.js" \
-UNDERSTAND_SKIP_TUNNEL_CHECK=1 \
   exec node "$ROOT/skill/understand/app/server.js" \
   --dir "$DIR" --session mock-main-session --cwd "$ROOT" --port "$PORT" ${NO_OPEN:+--no-open}
