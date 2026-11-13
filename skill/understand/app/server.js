@@ -33,6 +33,9 @@ const ASK_DISALLOWED = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
 // 承認して実行するときも、編集だけは禁じる。許可は足さない（その人の普段の許可に従う）
 const RUN_DISALLOWED = ['Edit', 'Write', 'NotebookEdit'];
 let mainSessionId = (args.session && !args.session.includes('${')) ? args.session : findLatestSession(PROJECT_CWD);
+// claude --resume は、実行時のカレントディレクトリでセッションを探す。
+// 渡された --cwd がずれていても動くように、セッションの記録から本当のcwdを拾う。
+const SPAWN_CWD = cwdOfSession(mainSessionId) || PROJECT_CWD;
 
 function parseArgs(argv) {
   const out = {};
@@ -46,6 +49,27 @@ function parseArgs(argv) {
     }
   }
   return out;
+}
+
+// セッションの記録の先頭には、そのセッションが動いていた cwd が入っている。それを拾う
+function cwdOfSession(id) {
+  if (!id) return null;
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    for (const slug of fs.readdirSync(base)) {
+      const file = path.join(base, slug, id + '.jsonl');
+      if (!fs.existsSync(file)) continue;
+      const fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(8192);
+      const n = fs.readSync(fd, buf, 0, 8192, 0);
+      fs.closeSync(fd);
+      for (const line of buf.slice(0, n).toString('utf8').split('\n')) {
+        try { const j = JSON.parse(line); if (j.cwd) return j.cwd; } catch (_) {}
+      }
+      return null;
+    }
+  } catch (_) {}
+  return null;
 }
 
 // ~/.claude/projects/<cwdのスラッグ>/ の中で一番新しいセッションを探す（セッションIDが渡されなかったときの保険）
@@ -66,7 +90,7 @@ function findLatestSession(cwd) {
 // 「理解したらログは捨てる」方針なので、このアプリが分岐で作ったセッションの記録だけを削除する（メインには触れない）
 const createdSessions = new Set();
 function cleanupForkedSessions() {
-  const dir = path.join(os.homedir(), '.claude', 'projects', PROJECT_CWD.replace(/[^A-Za-z0-9]/g, '-'));
+  const dir = path.join(os.homedir(), '.claude', 'projects', SPAWN_CWD.replace(/[^A-Za-z0-9]/g, '-'));
   for (const id of createdSessions) {
     if (!/^[0-9a-f-]{36}$/.test(id) || id === mainSessionId) continue;
     try { fs.rmSync(path.join(dir, id + '.jsonl'), { force: true }); } catch (_) {}
@@ -151,7 +175,8 @@ function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, append
     if (allowedTools && allowedTools.length) cmd.push('--allowedTools', ...allowedTools);
     if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
 
-    const child = spawn(CLAUDE_BIN, cmd, { cwd: PROJECT_CWD, env: process.env });
+    // stdin を開けたままにすると claude が入力を3秒待つので、最初から閉じておく
+    const child = spawn(CLAUDE_BIN, cmd, { cwd: SPAWN_CWD, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     const timer = setTimeout(() => child.kill('SIGTERM'), TIMEOUT_SEC * 1000);
     child.stdout.on('data', d => { stdout += d; });
@@ -301,6 +326,7 @@ server.listen(Number(args.port || 0), '127.0.0.1', () => {
   console.log(`理解モード: ${url}`);
   console.log(`作業フォルダ: ${WORK_DIR}`);
   console.log(`メインのセッション: ${mainSessionId || '(見つかりません)'}`);
+  console.log(`分身を動かす場所: ${SPAWN_CWD}`);
   if (!args['no-open']) openBrowser(url);
 });
 

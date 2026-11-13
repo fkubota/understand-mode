@@ -16,6 +16,7 @@
 - `claude -p` は、その人が普段 Claude Code に与えている許可をそのまま使う（`--allowedTools` を渡さなくても、許可済みのコマンドは実行できる）
 - 道具を指定しない `/api/runsql` が、本物のClaudeと本物のPostgreSQLで通ること（CLAUDE.md に接続方法を書いたプロジェクトで確認。`{columns, rows}` と vega-lite が返った）
 - 別オリジンのページからの操作を断ること（攻撃を書いて実演 → 合言葉の導入後は不成立）
+- `--cwd` がずれていても、セッションの記録から本当のcwdを拾って動くこと
 - `--allowedTools "Bash(psql:*)"` のように絞ると、psql は通り `ls` は `permission_denials` に入って拒否される
 - `claude -p --resume <id> --fork-session` で、メインの文脈を引き継いだ回答が返る。メインの会話記録は変わらない
 - 続きの質問は同じ分岐セッションに積める
