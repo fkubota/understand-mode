@@ -6,6 +6,9 @@ const KIND = { question: '質問', detail: '詳しく', term: '用語', diagram:
 const ACTION_LABEL = { detail: 'もっと詳しく', term: 'この用語を調べる', diagram: '図で見せて', data: 'データで確かめたい', review: 'ここをレビューして' };
 const WIRE_COLOR = { question: '#c9a400', detail: '#c9a400', term: '#5f70b6', diagram: '#9a937f', data: '#476b92', review: '#3f8f5a', memo: '#9fbddf' };
 const STORE_KEY = 'understand-state';
+// サーバーが発行した合言葉。URLから受け取り、API呼び出しのたびに添える
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const apiHeaders = { 'Content-Type': 'application/json', 'X-Understand-Token': TOKEN };
 
 const S = { stickies: {}, order: [], pan: { x: 40, y: 20 }, zoom: 1, seq: 0, focus: null };
 let pendingCount = 0;
@@ -41,7 +44,7 @@ const now = () => new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minu
 
 async function post(url, body) {
   try {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(url, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
     return await r.json();
   } catch (e) {
     return { ok: false, error: 'ローカルサーバーに接続できませんでした。理解モードを起動し直してください。' };
@@ -51,7 +54,7 @@ async function post(url, body) {
 // ---------------- 初期化 ----------------
 async function init() {
   let data;
-  try { data = await fetch('/api/init').then((r) => r.json()); }
+  try { data = await fetch('/api/init', { headers: apiHeaders }).then((r) => r.json()); }
   catch (_) { data = { markdown: '# 接続できません', project: '' }; }
   mainBody.innerHTML = md(data.markdown);
   mainBody.querySelectorAll('pre > code').forEach((code) => {

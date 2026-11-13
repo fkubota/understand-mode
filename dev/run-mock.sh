@@ -11,6 +11,8 @@ cp "$MAIN" "$DIR/main.md"
 echo "サンプル" > "$DIR/title.txt"
 
 echo "作業フォルダ: $DIR"
+# 合言葉つきのURLを e2e が読める場所に写す
+( while [ ! -f "$DIR/url.txt" ]; do sleep 0.2; done; cp "$DIR/url.txt" "$ROOT/dev/.mock-url" ) &
 UNDERSTAND_CLAUDE_BIN="$ROOT/dev/mock-claude.js" \
   exec node "$ROOT/skill/understand/app/server.js" \
   --dir "$DIR" --session mock-main-session --cwd "$ROOT" --port "$PORT" ${NO_OPEN:+--no-open}

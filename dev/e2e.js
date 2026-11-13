@@ -2,8 +2,9 @@ const { chromium } = require('playwright');
 // モック（npm run mock）で起動したサーバーに対して、付箋の作成からメインへの返却までを一通り操作する。
 // 使い方: node dev/e2e.js [スクリーンショットの保存先] [URL]
 const OUT = process.argv[2] || require('path').join(__dirname, 'shots');
-const URL = process.argv[3] || 'http://127.0.0.1:4502/';
 const fs = require('fs');
+// 合言葉つきのURL。run-mock.sh が dev/.mock-url に書く
+const URL = process.argv[3] || fs.readFileSync(require('path').join(__dirname, '.mock-url'), 'utf8').trim();
 fs.mkdirSync(OUT, { recursive: true });
 
 async function select(page, rootSel, needle) {

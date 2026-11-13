@@ -5,6 +5,7 @@
 
 'use strict';
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -16,6 +17,11 @@ const WORK_DIR = path.resolve(args.dir || fs.mkdtempSync(path.join(os.tmpdir(), 
 const PROJECT_CWD = path.resolve(args.cwd || process.cwd());
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CLAUDE_BIN = process.env.UNDERSTAND_CLAUDE_BIN || 'claude';
+
+// このサーバーは誰でも叩ける場所（127.0.0.1）にいる。同じマシンの別のページや別のプロセスから
+// 勝手に操作されないよう、起動ごとに合言葉を作る。URLに載せてブラウザに渡し、APIでは毎回照合する。
+const TOKEN = crypto.randomBytes(16).toString('hex');
+let PORT = 0; // listen してから決まる
 
 // 設定ファイルは持たない。モデルも道具もSQLの書き方も、分身がメインの文脈から引き継ぐ。
 // 変えられるのは待ち時間だけ。重い調べものをさせるときに伸ばす。
@@ -71,7 +77,8 @@ function cleanupForkedSessions() {
 // ---------- Claude 呼び出し ----------
 const SYSTEM_APPEND = [
   'あなたは今「理解モード」の説明役です。ユーザーは、この会話でClaudeが出した内容（本筋）を理解しようとしています。',
-  '目的は説明して理解を助けることです。ファイルの編集やコマンドの実行はしないでください。',
+  '目的は説明して理解を助けることです。ファイルの編集はしないでください。',
+  'コマンドの実行は、ユーザーが承認したSQLを実行するときだけ行ってください。それ以外では実行しないでください。',
   '日本語で、短く、具体例を使って答えてください。見出しは使わず、段落と短い箇条書きだけにしてください。',
   '「何を読んだか」「これから調べます」のような作業の説明は書かず、答えから書き始めてください。',
   '図があると分かりやすい場合は ```mermaid のコードブロックで図を添えてください（flowchart か sequenceDiagram を推奨。ラベルは日本語可、記号は避ける）。',
@@ -98,19 +105,42 @@ const ACTION_PROMPTS = {
 };
 
 // ---------- SQL実行の下ごしらえ ----------
-// 承認済みでも、参照以外のSQLは実行させない（ボタンの約束はアプリが守る。道具が何かは問わない）
-function readOnlyError(sql) {
-  const s = String(sql || '')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .trim().replace(/;\s*$/, '');
-  if (!s) return 'SQLが空です。';
-  if (s.includes(';')) return '複数の文はまとめて実行できません。SELECT を1つにしてください。';
-  if (!/^(select|with)\b/i.test(s)) return 'select か with で始まるSQLだけ実行できます。';
-  if (/\b(insert|update|delete|drop|truncate|alter|create|grant|revoke|copy|vacuum|call|do)\b/i.test(s)) {
-    return '参照以外の操作が含まれています。実行できるのは参照だけです。';
+// 文字列リテラルを壊さずにコメントだけ取り除く（'a--b' のような値を守るため）
+function stripComments(src) {
+  const s = String(src);
+  let out = '', i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === "'" || c === '"') {
+      const q = c; out += c; i++;
+      while (i < s.length) {
+        if (s[i] === q) {
+          if (s[i + 1] === q) { out += q + q; i += 2; continue; } // 連続した引用符は値の一部
+          out += q; i++; break;
+        }
+        out += s[i]; i++;
+      }
+      continue;
+    }
+    if (c === '-' && s[i + 1] === '-') { while (i < s.length && s[i] !== '\n') i++; continue; }
+    if (c === '/' && s[i + 1] === '*') { i += 2; while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) i++; i += 2; continue; }
+    out += c; i++;
   }
-  return null;
+  return out;
+}
+
+// 承認済みでも、参照以外のSQLは実行させない（ボタンの約束はアプリが守る。道具が何かは問わない）。
+// 検査したものと実行するものを同じにするため、正規化したSQLを返す。
+// コメントを落とすのは、そこに紛れ込ませた指示が分身に渡るのを防ぐため。
+function checkSql(raw) {
+  const sql = stripComments(raw).trim().replace(/;\s*$/, '');
+  if (!sql) return { error: 'SQLが空です。' };
+  if (sql.includes(';')) return { error: '複数の文はまとめて実行できません。SELECT を1つにしてください。' };
+  if (!/^(select|with)\b/i.test(sql)) return { error: 'select か with で始まるSQLだけ実行できます。' };
+  if (/\b(insert|update|delete|drop|truncate|alter|create|grant|revoke|copy|vacuum|call|do)\b/i.test(sql)) {
+    return { error: '参照以外の操作が含まれています。実行できるのは参照だけです。' };
+  }
+  return { sql };
 }
 
 function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem }) {
@@ -157,9 +187,26 @@ function readBody(req) {
   });
 }
 
+// 同じマシンの別のページ・別のプロセスからの操作を断る。
+// ブラウザは合言葉を知らないオリジンから独自ヘッダを付けられないので、ここで止まる。
+function denyReason(req, url) {
+  const host = (req.headers.host || '').trim();
+  if (host !== `127.0.0.1:${PORT}` && host !== `localhost:${PORT}`) return 'ホスト名が違います';
+  const origin = req.headers.origin;
+  if (origin && origin !== `http://127.0.0.1:${PORT}` && origin !== `http://localhost:${PORT}`) return '別のページからは操作できません';
+  const given = req.headers['x-understand-token'] || url.searchParams.get('t') || '';
+  // 長さが違っても時間差が出ないように、長さを先に見てから定数時間で比べる
+  if (given.length !== TOKEN.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(TOKEN))) return '合言葉が違います';
+  return null;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
+    if (url.pathname.startsWith('/api/')) {
+      const deny = denyReason(req, url);
+      if (deny) return send(res, 403, { ok: false, error: `${deny}。理解モードのURLから開き直してください。` });
+    }
     if (req.method === 'GET' && url.pathname === '/api/init') {
       const mdPath = path.join(WORK_DIR, 'main.md');
       const markdown = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : '# 本筋がありません\n\nmain.md が見つかりませんでした。';
@@ -186,8 +233,8 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/runsql') {
       const b = await readBody(req);
-      const bad = readOnlyError(b.sql);
-      if (bad) return send(res, 200, { ok: false, error: bad });
+      const checked = checkSql(b.sql);
+      if (checked.error) return send(res, 200, { ok: false, error: checked.error });
       // どの道具で実行するかは指定しない。メインの文脈を引き継いだ分身が、この環境のやり方で取る
       const prompt = [
         'ユーザーが次のSQLの実行を承認しました。この環境でいつもデータを取っているやり方で、読み取りとして1回だけ実行してください。',
@@ -199,7 +246,7 @@ const server = http.createServer(async (req, res) => {
         '実行できなかった場合は、理由だけを短く書いてください（接続の用意が要るなら、それも一言で）。',
         '',
         '```sql',
-        b.sql,
+        checked.sql, // 検査したものをそのまま渡す
         '```',
       ].join('\n');
       const result = await runClaude({
@@ -247,7 +294,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(Number(args.port || 0), '127.0.0.1', () => {
-  const url = `http://127.0.0.1:${server.address().port}/`;
+  PORT = server.address().port;
+  const url = `http://127.0.0.1:${PORT}/?t=${TOKEN}`;
   fs.writeFileSync(path.join(WORK_DIR, 'url.txt'), url + '\n');
   fs.writeFileSync(path.join(WORK_DIR, 'server.pid'), String(process.pid));
   console.log(`理解モード: ${url}`);
