@@ -1,0 +1,16 @@
+{
+  "name": "understand-mode",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Claude Code の出力を、付箋のホワイトボードで寄り道しながら理解する /understand スキル",
+  "scripts": {
+    "mock": "bash dev/run-mock.sh",
+    "test:e2e": "node dev/e2e.js",
+    "test:sql": "node dev/test-sql.js",
+    "link": "bash dev/link-skill.sh",
+    "pr-demo": "bash dev/make-pr-demo.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

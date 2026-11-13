@@ -1,0 +1,327 @@
+#!/usr/bin/env node
+// 理解モード ローカルサーバー
+// 使い方: node server.js --dir <作業フォルダ> --session <メインのセッションID> --cwd <プロジェクトのパス> [--port 0] [--no-open]
+// 依存パッケージなし（Node 18+ の標準モジュールのみ）
+
+'use strict';
+const http = require('http');
+const net = require('net');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { spawn, execFile } = require('child_process');
+
+// ---------- 引数と設定 ----------
+const args = parseArgs(process.argv.slice(2));
+const WORK_DIR = path.resolve(args.dir || fs.mkdtempSync(path.join(os.tmpdir(), 'understand-')));
+const PROJECT_CWD = path.resolve(args.cwd || process.cwd());
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const config = loadConfig();
+const CLAUDE_BIN = process.env.UNDERSTAND_CLAUDE_BIN || config.claudeBin || 'claude';
+let mainSessionId = (args.session && !args.session.includes('${')) ? args.session : findLatestSession(PROJECT_CWD);
+
+function parseArgs(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith('--')) out[key] = true;
+      else { out[key] = next; i++; }
+    }
+  }
+  return out;
+}
+
+function loadConfig() {
+  const defaults = {
+    // 寄り道の質問に使うモデル（空ならメインと同じ）。例: "sonnet"
+    model: '',
+    // 寄り道中に絶対に使わせないツール（ファイル編集や、承認前のSQL実行を防ぐ）
+    askDisallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Bash'],
+    // SQLの実行を承認したときだけ許可するツール。psql だけに絞っている
+    sqlAllowedTools: ['Bash(psql:*)'],
+    // psql のつなぎ先。画面の「DB接続」で入力するときの既定値になる
+    dbHost: 'localhost',
+    dbPort: 5432,
+    dbUser: '',
+    dbName: '',
+    // 分身に守らせるSQLの書き方（流儀があれば書く。空なら何も指示しない）
+    sqlStyle: '',
+    timeoutSec: 300,
+    // true にすると、閉じたあとも寄り道のセッション記録を残す
+    keepForkedSessions: false,
+  };
+  try {
+    const user = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+    return Object.assign(defaults, user);
+  } catch (_) {
+    return defaults;
+  }
+}
+
+// ~/.claude/projects/<cwdのスラッグ>/ の中で一番新しいセッションを探す（セッションIDが渡されなかったときの保険）
+function findLatestSession(cwd) {
+  try {
+    const slug = cwd.replace(/[^A-Za-z0-9]/g, '-');
+    const dir = path.join(os.homedir(), '.claude', 'projects', slug);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'))
+      .map(f => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    return files.length ? files[0].f.replace(/\.jsonl$/, '') : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ---------- 寄り道で作ったセッションの後片付け ----------
+// 「理解したらログは捨てる」方針なので、このアプリが分岐で作ったセッションの記録だけを削除する（メインには触れない）
+const createdSessions = new Set();
+let sqlSeq = 0;
+function cleanupForkedSessions() {
+  if (config.keepForkedSessions) return;
+  const dir = path.join(os.homedir(), '.claude', 'projects', PROJECT_CWD.replace(/[^A-Za-z0-9]/g, '-'));
+  for (const id of createdSessions) {
+    if (!/^[0-9a-f-]{36}$/.test(id) || id === mainSessionId) continue;
+    try { fs.rmSync(path.join(dir, id + '.jsonl'), { force: true }); } catch (_) {}
+    try { fs.rmSync(path.join(dir, id), { recursive: true, force: true }); } catch (_) {}
+  }
+}
+
+// ---------- Claude 呼び出し ----------
+const SYSTEM_APPEND = [
+  'あなたは今「理解モード」の説明役です。ユーザーは、この会話でClaudeが出した内容（本筋）を理解しようとしています。',
+  '目的は説明して理解を助けることです。ファイルの編集やコマンドの実行はしないでください。',
+  '日本語で、短く、具体例を使って答えてください。見出しは使わず、段落と短い箇条書きだけにしてください。',
+  '「何を読んだか」「これから調べます」のような作業の説明は書かず、答えから書き始めてください。',
+  '図があると分かりやすい場合は ```mermaid のコードブロックで図を添えてください（flowchart か sequenceDiagram を推奨。ラベルは日本語可、記号は避ける）。',
+  'データを見ないと確かめられない場合は、SQLを実行せずに ```sql のコードブロックで提案だけしてください。ユーザーが承認してから実行します。',
+  '説明にコードが必要なときは、必要な部分だけ（15行以内）を載せてください。必ずReadツールなどで実際のファイルを読んでから、そのままの内容を写すこと（記憶で書かない）。',
+  'コードを載せるときの見出し行は「~~~~言語名 ファイルパス:開始行番号」にしてください（例：~~~~python src/accuracy.py:12）。差分なら「~~~~diff ファイルパス」。',
+  '本筋の記述に誤りや見直すべき点を見つけたら、最後に一文で「本筋への影響：…」と書いてください。',
+].concat(config.sqlStyle ? ['SQLの書き方：' + config.sqlStyle] : []).join('\n');
+
+const target = (anchor) => `\n\n【対象】\n${anchor}`;
+const ACTION_PROMPTS = {
+  question: (anchor, q) => `本筋のこの部分について質問です。${target(anchor)}\n\n【質問】\n${q || 'これはどういう意味ですか？'}`,
+  detail: (anchor) => `本筋のこの部分を、もう一段詳しく、具体例を使って説明してください。コードなら、何をしているかを1行ずつではなく処理のまとまりごとに説明してください。${target(anchor)}`,
+  term: (anchor) => `この用語（または表現・関数名）を、この会話の文脈での意味に絞って説明してください。一般的な定義と、ここでの使われ方の両方を短く。${target(anchor)}`,
+  diagram: (anchor) => `この部分を図で説明してください。必ず \`\`\`mermaid の図を1つ含め、図の読み方を2〜3文で添えてください。コードなら処理の流れかデータの流れを図にしてください。${target(anchor)}`,
+  data: (anchor) => `この部分をデータで確かめたいです。確かめるためのSQLを \`\`\`sql で1つ提案し、何を見れば確かめられるかを2〜3文で説明してください。まだ実行はしないでください。${target(anchor)}`,
+  review: (anchor) => [
+    'この部分をレビューしてください。必要ならリポジトリのファイルを読んで前後の文脈も確認してください（編集はしないこと）。',
+    '観点：不具合、境界値（0・空・欠損・重複・型）、前提の誤り、読みやすさ。',
+    '重要な順に最大3点。各点は「**重大度（高/中/低）** 何が起きるか（具体的な入力例つき）→ 直し方」を2〜3文で。直し方にコードが要るときは短いコードブロックで。',
+    '問題がなければ「問題なし」と、その理由を一文で書いてください。',
+    '直すべき点があれば、最後に一文で「本筋への影響：…」と書いてください。',
+  ].join('\n') + target(anchor),
+};
+
+// ---------- SQL実行の下ごしらえ ----------
+// DBに届くかを、Nodeから直接つないで確かめる（Bashを使わずに済ませる）
+function checkTunnel(host, port) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port }, () => { sock.destroy(); resolve(true); });
+    sock.setTimeout(2000);
+    sock.on('timeout', () => { sock.destroy(); resolve(false); });
+    sock.on('error', () => resolve(false));
+  });
+}
+
+// 承認済みでも、参照以外のSQLは実行させない（psqlは接続ユーザーの権限で書き込みもできてしまうため）
+function readOnlyError(sql) {
+  const s = String(sql || '')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .trim().replace(/;\s*$/, '');
+  if (!s) return 'SQLが空です。';
+  if (s.includes(';')) return '複数の文はまとめて実行できません。SELECT を1つにしてください。';
+  if (!/^(select|with)\b/i.test(s)) return 'select か with で始まるSQLだけ実行できます。';
+  if (/\b(insert|update|delete|drop|truncate|alter|create|grant|revoke|copy|vacuum|call|do)\b/i.test(s)) {
+    return '参照以外の操作が含まれています。実行できるのは参照だけです。';
+  }
+  return null;
+}
+
+function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem, model, env }) {
+  return new Promise((resolve) => {
+    const cmd = ['-p', prompt, '--output-format', 'json'];
+    if (resume) { cmd.push('--resume', resume); if (fork) cmd.push('--fork-session'); }
+    if (appendSystem) cmd.push('--append-system-prompt', appendSystem);
+    if (allowedTools && allowedTools.length) cmd.push('--allowedTools', ...allowedTools);
+    if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
+    if (model) cmd.push('--model', model);
+
+    // パスワードはプロンプトではなく環境変数で渡す（会話ログにも ps の出力にも残らない）
+    const child = spawn(CLAUDE_BIN, cmd, { cwd: PROJECT_CWD, env: env ? Object.assign({}, process.env, env) : process.env });
+    let stdout = '', stderr = '';
+    const timer = setTimeout(() => child.kill('SIGTERM'), config.timeoutSec * 1000);
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', err => { clearTimeout(timer); resolve({ ok: false, error: `Claudeを起動できませんでした: ${err.message}` }); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      try {
+        const j = JSON.parse(stdout);
+        if (j.session_id && j.session_id !== mainSessionId) createdSessions.add(j.session_id);
+        if (j.is_error) return resolve({ ok: false, error: j.result || 'Claudeがエラーを返しました', sessionId: j.session_id });
+        resolve({ ok: true, text: j.result || '', sessionId: j.session_id, costUsd: j.total_cost_usd });
+      } catch (_) {
+        resolve({ ok: false, error: `Claudeの応答を読めませんでした（終了コード ${code}）\n${(stderr || stdout).slice(0, 800)}` });
+      }
+    });
+  });
+}
+
+// ---------- HTTP ----------
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+
+function send(res, status, body, type = 'application/json; charset=utf-8') {
+  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+  res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', c => { data += c; if (data.length > 5e6) req.destroy(); });
+    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(e); } });
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  try {
+    if (req.method === 'GET' && url.pathname === '/api/init') {
+      const mdPath = path.join(WORK_DIR, 'main.md');
+      const markdown = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : '# 本筋がありません\n\nmain.md が見つかりませんでした。';
+      let title = '';
+      try { title = fs.readFileSync(path.join(WORK_DIR, 'title.txt'), 'utf8').trim(); } catch (_) {}
+      return send(res, 200, {
+        markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD),
+        db: { host: config.dbHost, port: config.dbPort, user: config.dbUser, name: config.dbName },
+      });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/ask') {
+      const b = await readBody(req);
+      if (!mainSessionId && !b.sessionId) return send(res, 200, { ok: false, error: 'メインのセッションが見つかりません。スキルからもう一度起動してください。' });
+      const make = ACTION_PROMPTS[b.action] || ACTION_PROMPTS.question;
+      const prompt = b.followUp ? b.followUp : make(b.anchor || '', b.question);
+      const result = await runClaude({
+        prompt,
+        resume: b.sessionId || mainSessionId,
+        // 付箋の最初の質問は親（本筋 or 親の付箋）から分岐する。続きの質問はその付箋のセッションに積む
+        fork: !b.continueSession,
+        appendSystem: SYSTEM_APPEND,
+        disallowedTools: config.askDisallowedTools,
+        model: config.model,
+      });
+      return send(res, 200, result);
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/runsql') {
+      const b = await readBody(req);
+      const bad = readOnlyError(b.sql);
+      if (bad) return send(res, 200, { ok: false, error: bad });
+      const conn = {
+        host: (b.host || config.dbHost || 'localhost').trim(),
+        port: Number(b.port) || config.dbPort,
+        user: (b.user || config.dbUser || '').trim(),
+        name: (b.name || config.dbName || '').trim(),
+      };
+      if (!conn.user || !conn.name) return send(res, 200, { ok: false, error: 'DBのユーザー名とデータベース名が未入力です。ツールバーの「DB接続」から入れてください。' });
+      if (!b.password) return send(res, 200, { ok: false, error: 'DBのパスワードが未入力です。ツールバーの「DB接続」から入れてください。' });
+      if (/[^A-Za-z0-9._-]/.test(conn.host + conn.user + conn.name)) {
+        return send(res, 200, { ok: false, error: '接続情報に使えない文字が入っています。英数字と . _ - だけにしてください。' });
+      }
+      if (!process.env.UNDERSTAND_SKIP_TUNNEL_CHECK && !(await checkTunnel(conn.host, conn.port))) {
+        return send(res, 200, { ok: false, error: `${conn.host}:${conn.port} につながりません。DBに届く状態（SSHトンネルなど）にしてから、もう一度実行してください。` });
+      }
+
+      // SQLはファイルに書いて -f で渡す。クォートが崩れず、Claudeに書き換えられる余地もない
+      const sqlPath = path.join(WORK_DIR, `query-${++sqlSeq}.sql`);
+      fs.writeFileSync(sqlPath, String(b.sql).trim().replace(/;\s*$/, '') + '\n');
+      const cmdLine = `psql -h ${conn.host} -p ${conn.port} -U ${conn.user} -d ${conn.name} --csv -f ${sqlPath}`;
+      const prompt = [
+        'ユーザーが次のSQLの実行を承認しました。下のコマンドを、書き換えずにそのまま1回だけ実行してください。',
+        'パスワードは環境変数 PGPASSWORD に入っています。コマンドに書き足さないでください。',
+        '',
+        '```bash',
+        cmdLine,
+        '```',
+        '',
+        '結果はCSV（1行目が列名）で返ります。それをもとに、必ず次の形式で答えてください：',
+        '1. ```json のブロックに {"columns": [...], "rows": [[...], ...]}（最大200行。値は結果のまま）',
+        '2. グラフが理解に役立つなら ```vega-lite のブロックに Vega-Lite の spec。dataは {"name": "result"} とし、値は書かないこと（アプリが結果を差し込みます）。フィールド名はcolumnsと同じにすること。',
+        '3. 結果から読み取れることを2〜3文で。',
+        '実行できなかった場合は、理由だけを短く書いてください。',
+        '',
+        '実行されるSQLは次の内容です（参考。実行はファイル経由で行うこと）：',
+        '```sql',
+        b.sql,
+        '```',
+      ].join('\n');
+      const result = await runClaude({
+        prompt,
+        resume: b.sessionId,
+        fork: false,
+        appendSystem: SYSTEM_APPEND,
+        allowedTools: config.sqlAllowedTools,
+        disallowedTools: ['Edit', 'Write', 'NotebookEdit'],
+        env: { PGPASSWORD: b.password },
+        model: config.model,
+      });
+      try { fs.rmSync(sqlPath, { force: true }); } catch (_) {}
+      return send(res, 200, result);
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/draft') {
+      const b = await readBody(req);
+      const prompt = [
+        '以下は、ユーザーがClaudeの出力（本筋）を理解する過程で「本筋に影響あり」とした寄り道のメモです。',
+        'これをもとに、メインの作業セッションのClaudeに返す短いメッセージを、ユーザーの一人称で下書きしてください。',
+        '形式：1行目に理解できたことを一言、その後に本筋に反映してほしい点を番号付きで。各点は根拠を一文添える。全体で8行以内。前置きや説明は書かず、メッセージ本文だけを出力すること。',
+        '',
+        b.notes || '',
+      ].join('\n');
+      const result = await runClaude({ prompt, disallowedTools: config.askDisallowedTools, model: config.model || 'sonnet' });
+      return send(res, 200, result);
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/return') {
+      const b = await readBody(req);
+      const text = (b.text || '').trim();
+      fs.writeFileSync(path.join(WORK_DIR, 'return.md'), text ? text + '\n' : '(本筋に返すことはありません)\n');
+      cleanupForkedSessions();
+      send(res, 200, { ok: true });
+      setTimeout(() => { server.close(); process.exit(0); }, 500);
+      return;
+    }
+
+    // 静的ファイル
+    let p = url.pathname === '/' ? '/index.html' : url.pathname;
+    const filePath = path.normalize(path.join(PUBLIC_DIR, p));
+    if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath)) return send(res, 404, 'not found', 'text/plain');
+    return send(res, 200, fs.readFileSync(filePath), MIME[path.extname(filePath)] || 'application/octet-stream');
+  } catch (e) {
+    return send(res, 500, { ok: false, error: e.message });
+  }
+});
+
+server.listen(Number(args.port || 0), '127.0.0.1', () => {
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  fs.writeFileSync(path.join(WORK_DIR, 'url.txt'), url + '\n');
+  fs.writeFileSync(path.join(WORK_DIR, 'server.pid'), String(process.pid));
+  console.log(`理解モード: ${url}`);
+  console.log(`作業フォルダ: ${WORK_DIR}`);
+  console.log(`メインのセッション: ${mainSessionId || '(見つかりません)'}`);
+  if (!args['no-open']) openBrowser(url);
+});
+
+function openBrowser(url) {
+  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const a = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  execFile(cmd, a, () => {});
+}

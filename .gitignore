@@ -1,0 +1,5 @@
+node_modules/
+dev/shots/
+skill/understand/app/config.json
+.DS_Store
+package-lock.json
