@@ -600,35 +600,54 @@ function rehighlight(root, sourceId) {
     const c = S.stickies[cid];
     if (!c.anchorText || c.anchorText.startsWith('グラフの値：')) return;
     const scope = sourceId === 'main' ? root : root.querySelector('.st-body') || root;
-    const mk = highlightText(scope, c.anchorText);
-    if (mk) {
+    highlightText(scope, c.anchorText).forEach((mk) => {
       mk.className = `anc t-${c.type}${c.impact ? ' impact' : ''}`;
       mk.dataset.sid = cid;
       mk.title = c.title;
       mk.onclick = () => { focusSticky(cid); };
-    }
+    });
   });
 }
 
+// 選んだ文は、太字やインラインコードをまたいで複数のテキストノードに分かれていることがある。
+// 全体を1本の文字列としてつないでから探し、またいだぶんはそれぞれ mark で包む。
 function highlightText(root, text) {
+  const nodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.parentElement.closest('mark.anc, .diagram-box, .chart-box, .sql-box, textarea, .st-anchor, .msg.user')) continue;
+    nodes.push(n);
+  }
+  const flat = nodes.map((x) => x.data).join('');
   const firstLine = text.split('\n').map((s) => s.trim()).find(Boolean) || '';
   const candidates = [text.trim(), firstLine, firstLine.slice(0, 40)].filter((s, i, a) => s && a.indexOf(s) === i);
-  for (const needle of candidates) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let n;
-    while ((n = walker.nextNode())) {
-      if (n.parentElement.closest('mark.anc, .diagram-box, .chart-box, .sql-box, textarea, .st-anchor, .msg.user')) continue;
-      const i = n.data.indexOf(needle);
-      if (i >= 0) {
-        const r = document.createRange();
-        r.setStart(n, i); r.setEnd(n, i + needle.length);
-        const mk = document.createElement('mark');
-        r.surroundContents(mk);
-        return mk;
-      }
-    }
+
+  let start = -1, needle = '';
+  for (const c of candidates) {
+    const i = flat.indexOf(c);
+    if (i >= 0) { start = i; needle = c; break; }
   }
-  return null;
+  if (start < 0) return [];
+  const end = start + needle.length;
+
+  // つないだ文字列の [start, end) を、もとのテキストノードの範囲に割り戻す
+  const segments = [];
+  let pos = 0;
+  for (const node of nodes) {
+    const len = node.data.length;
+    const s = Math.max(start, pos), e = Math.min(end, pos + len);
+    if (s < e) segments.push({ node, from: s - pos, to: e - pos });
+    pos += len;
+    if (pos >= end) break;
+  }
+  return segments.map(({ node, from, to }) => {
+    const r = document.createRange();
+    r.setStart(node, from); r.setEnd(node, to);
+    const mk = document.createElement('mark');
+    r.surroundContents(mk); // 1つのテキストノードの中なので安全に包める
+    return mk;
+  });
 }
 
 // ---------------- 線 ----------------

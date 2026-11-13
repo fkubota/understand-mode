@@ -8,22 +8,31 @@ const URL = process.argv[3] || fs.readFileSync(require('path').join(__dirname, '
 fs.mkdirSync(OUT, { recursive: true });
 
 async function select(page, rootSel, needle) {
+  // 本物の選択と同じく、太字やインラインコードをまたいで選べるようにする
   await page.evaluate(([rootSel, needle]) => {
     const root = document.querySelector(rootSel);
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
     let n;
-    while ((n = w.nextNode())) {
-      const i = n.data.indexOf(needle);
-      if (i >= 0) {
-        const r = document.createRange();
-        r.setStart(n, i); r.setEnd(n, i + needle.length);
-        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
-        const rect = r.getBoundingClientRect();
-        n.parentElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: rect.right, clientY: rect.bottom }));
-        return;
+    while ((n = w.nextNode())) nodes.push(n);
+    const flat = nodes.map((x) => x.data).join('');
+    const at = flat.indexOf(needle);
+    if (at < 0) throw new Error('not found: ' + needle);
+    const locate = (offset) => {
+      let pos = 0;
+      for (const node of nodes) {
+        if (offset <= pos + node.data.length) return { node, offset: offset - pos };
+        pos += node.data.length;
       }
-    }
-    throw new Error('not found: ' + needle);
+      const last = nodes[nodes.length - 1];
+      return { node: last, offset: last.data.length };
+    };
+    const a = locate(at), b = locate(at + needle.length);
+    const r = document.createRange();
+    r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    const rect = r.getBoundingClientRect();
+    a.node.parentElement.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: rect.right, clientY: rect.bottom }));
   }, [rootSel, needle]);
   await page.waitForSelector('#sel-menu:not([hidden])');
 }
@@ -59,6 +68,19 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
   await select(page, '#main-body', '客単価');
   await action(page, 'term');
   await idle(page);
+
+  // インラインコードをまたぐ選択でも、出どころにマーカーが付くこと
+  await select(page, '#main-body', '集計は daily_sales テーブルの amount 列を日別に合計したものです。');
+  await action(page, 'detail');
+  await idle(page);
+  const crossed = await page.evaluate(() => {
+    const marks = [...document.querySelectorAll('#main-body mark.anc')];
+    const last = marks.filter((m) => m.className.includes('t-detail'));
+    return { count: last.length, text: last.map((m) => m.textContent).join('') };
+  });
+  if (crossed.count < 3 || !crossed.text.includes('daily_sales') || !crossed.text.includes('amount')) {
+    errors.push(`またぎのマーカーが付いていない: ${JSON.stringify(crossed)}`);
+  }
 
   // データで確かめる
   await select(page, '#main-body', 'イベントの来場者が立ち寄ったものと考えられます');
