@@ -8,7 +8,8 @@
     "test:e2e": "node dev/e2e.js",
     "test:sql": "node dev/test-sql.js",
     "link": "bash dev/link-skill.sh",
-    "pr-demo": "bash dev/make-pr-demo.sh"
+    "pr-demo": "bash dev/make-pr-demo.sh",
+    "test:figures": "node dev/test-figures.js"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

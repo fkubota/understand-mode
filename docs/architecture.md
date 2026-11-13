@@ -31,7 +31,7 @@ sequenceDiagram
 
 | パス | 役割 |
 | --- | --- |
-| `skill/understand/SKILL.md` | Claude Code のスキル本体。起動と「終わった」後の手順。`${CLAUDE_SKILL_DIR}` と `${CLAUDE_SESSION_ID}` を使う |
+| `skill/understand/SKILL.md` | Claude Code のスキル本体。起動・図のモード（`-1`/`-2`）・「終わった」後の手順。`${CLAUDE_SKILL_DIR}` と `${CLAUDE_SESSION_ID}` を使う |
 | `skill/understand/pr-guide.md` | 依頼文がPR・ブランチのときの、説明文書の作り方 |
 | `skill/understand/app/server.js` | ローカルサーバー。依存パッケージなし（Node 18+ 標準のみ）。設定ファイルを持たない |
 | `skill/understand/app/public/` | 画面（素の JS。ビルドなし）。`favicon.svg` は水面から潜るアイコン |
@@ -136,6 +136,7 @@ vega-lite のメジャーを上げたら、`app.js` の `$schema` の既定値�
 | --- | --- |
 | 費用をかけずにUIを触る | `npm run mock`（偽の claude で起動。`NO_OPEN=1` でブラウザを開かない） |
 | 一通りの操作を自動で確認 | 別の端末で `npm run mock` を動かしたまま `npm i && npm run test:e2e` |
+| 本筋の図とグラフを確認 | `npm run mock -- 4502 dev/fixtures/sample-figures.md` を動かしたまま `npm run test:figures` |
 | SQL実行まわりを確認 | `npm run test:sql`（Claudeもデータベースも使わない。道具を指定していないこと、承認前は実行させないこと、参照以外のSQLを弾くことを見る） |
 | 本物の Claude Code で試す | `npm run link` で `~/.claude/skills/understand` にリンクし、Claude Code を開き直す |
 | PRモードを試す | `npm run pr-demo` でサンプルリポジトリを作り、そこで `/understand このPRを理解したい` |

@@ -62,6 +62,9 @@ async function init() {
   mainBody.querySelectorAll('pre > code').forEach((code) => {
     if (code.classList.contains('language-mermaid')) {
       const box = el('div', 'diagram-box'); code.parentElement.replaceWith(box); renderMermaid(box, code.textContent);
+    } else if (code.classList.contains('language-vega-lite') || code.classList.contains('language-vegalite')) {
+      // 本筋のグラフは自前のデータを持っている（付箋のようにSQL結果を差し込まない）
+      const box = el('div', 'chart-box'); code.parentElement.replaceWith(box); renderChart(box, code.textContent, null);
     } else {
       numberLines(code);
     }
@@ -506,30 +509,7 @@ function renderMessage(st, m) {
   div.querySelectorAll('pre > code.language-vega-lite, pre > code.language-vegalite').forEach((code) => {
     const box = el('div', 'chart-box');
     code.parentElement.replaceWith(box);
-    try {
-      const spec = JSON.parse(code.textContent);
-      if (!result) throw new Error('結果データがないため、グラフを描けません');
-      spec.data = { values: result.rows.map((r) => Object.fromEntries(result.columns.map((c, i) => [c, r[i]]))) };
-      spec.width = 'container';
-      spec.autosize = { type: 'fit', contains: 'padding' };
-      if (!spec.height) spec.height = 220;
-      spec.$schema = spec.$schema || 'https://vega.github.io/schema/vega-lite/v6.json';
-      vegaEmbed(box, spec, { actions: false, renderer: 'svg' })
-        .then(({ view }) => {
-          box.title = '点や棒をクリックすると、その値について質問できます';
-          view.addEventListener('click', (_e, item) => {
-            if (!item || !item.datum) return;
-            const datum = Object.fromEntries(Object.entries(item.datum).filter(([k]) => !k.startsWith('Symbol') && result.columns.includes(k)));
-            const r = box.getBoundingClientRect();
-            const srcRect = document.getElementById('st-' + st.id).getBoundingClientRect();
-            createSticky('question', { text: 'グラフの値：' + JSON.stringify(datum), source: st.id, anchorY: (r.top + r.height / 2 - srcRect.top) / S.zoom });
-          });
-          drawWires();
-        })
-        .catch((err) => { box.textContent = 'グラフを描けませんでした：' + err.message; });
-    } catch (e) {
-      box.textContent = e.message;
-    }
+    renderChart(box, code.textContent, result, st);
   });
 
   wrap.append(div);
@@ -592,6 +572,40 @@ function tableEl(j) {
   });
   wrap.append(t);
   return wrap;
+}
+
+// Vega-Lite のグラフを描く。
+// result があれば（付箋のSQL結果）その値を差し込み、なければ spec が持っているデータをそのまま使う（本筋）。
+function renderChart(box, text, result, st) {
+  try {
+    const spec = JSON.parse(text);
+    if (result) {
+      spec.data = { values: result.rows.map((r) => Object.fromEntries(result.columns.map((c, i) => [c, r[i]]))) };
+    } else if (!spec.data || (!spec.data.values && !spec.data.url)) {
+      throw new Error('グラフのデータがありません');
+    }
+    spec.width = 'container';
+    spec.autosize = { type: 'fit', contains: 'padding' };
+    if (!spec.height) spec.height = 220;
+    spec.$schema = spec.$schema || 'https://vega.github.io/schema/vega-lite/v6.json';
+    vegaEmbed(box, spec, { actions: false, renderer: 'svg' })
+      .then(({ view }) => {
+        // 値を押して質問できるのは、付箋のSQL結果から描いたグラフだけ
+        if (!result || !st) return drawWires();
+        box.title = '点や棒をクリックすると、その値について質問できます';
+        view.addEventListener('click', (_e, item) => {
+          if (!item || !item.datum) return;
+          const datum = Object.fromEntries(Object.entries(item.datum).filter(([k]) => !k.startsWith('Symbol') && result.columns.includes(k)));
+          const r = box.getBoundingClientRect();
+          const srcRect = document.getElementById('st-' + st.id).getBoundingClientRect();
+          createSticky('question', { text: 'グラフの値：' + JSON.stringify(datum), source: st.id, anchorY: (r.top + r.height / 2 - srcRect.top) / S.zoom });
+        });
+        drawWires();
+      })
+      .catch((err) => { box.textContent = 'グラフを描けませんでした：' + err.message; });
+  } catch (e) {
+    box.textContent = e.message;
+  }
 }
 
 async function renderMermaid(box, code) {
