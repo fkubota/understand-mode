@@ -36,6 +36,9 @@ let mainSessionId = (args.session && !args.session.includes('${')) ? args.sessio
 // claude --resume は、実行時のカレントディレクトリでセッションを探す。
 // 渡された --cwd がずれていても動くように、セッションの記録から本当のcwdを拾う。
 const SPAWN_CWD = cwdOfSession(mainSessionId) || PROJECT_CWD;
+const MAIN_MODE = permissionModeOf(mainSessionId);
+// メインが確認なしで動いているなら、アプリも承認ボタンを挟まない
+const AUTO_RUN = MAIN_MODE === 'bypassPermissions';
 
 function parseArgs(argv) {
   const out = {};
@@ -49,6 +52,26 @@ function parseArgs(argv) {
     }
   }
   return out;
+}
+
+// メインがどの権限モードで動いているかを、セッションの記録から拾う。
+// bypassPermissions なら、本人は「いちいち聞くな」と言っているので、アプリも聞かない。
+function permissionModeOf(id) {
+  if (!id) return null;
+  const base = path.join(os.homedir(), '.claude', 'projects');
+  try {
+    for (const slug of fs.readdirSync(base)) {
+      const file = path.join(base, slug, id + '.jsonl');
+      if (!fs.existsSync(file)) continue;
+      let mode = null;
+      for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+        if (!line.includes('permissionMode')) continue;
+        try { const j = JSON.parse(line); if (j.permissionMode) mode = j.permissionMode; } catch (_) {}
+      }
+      return mode;
+    }
+  } catch (_) {}
+  return null;
 }
 
 // セッションの記録の先頭には、そのセッションが動いていた cwd が入っている。それを拾う
@@ -167,13 +190,15 @@ function checkSql(raw) {
   return { sql };
 }
 
-function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem }) {
+function runClaude({ prompt, resume, fork, allowedTools, disallowedTools, appendSystem, matchMainMode }) {
   return new Promise((resolve) => {
     const cmd = ['-p', prompt, '--output-format', 'json'];
     if (resume) { cmd.push('--resume', resume); if (fork) cmd.push('--fork-session'); }
     if (appendSystem) cmd.push('--append-system-prompt', appendSystem);
     if (allowedTools && allowedTools.length) cmd.push('--allowedTools', ...allowedTools);
     if (disallowedTools && disallowedTools.length) cmd.push('--disallowedTools', ...disallowedTools);
+    // メインが確認なしなら分身も合わせる。禁止したツールは、このモードでも使えないままになる
+    if (matchMainMode && AUTO_RUN) cmd.push('--permission-mode', 'bypassPermissions');
 
     // stdin を開けたままにすると claude が入力を3秒待つので、最初から閉じておく
     const child = spawn(CLAUDE_BIN, cmd, { cwd: SPAWN_CWD, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -237,7 +262,7 @@ const server = http.createServer(async (req, res) => {
       const markdown = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : '# 本筋がありません\n\nmain.md が見つかりませんでした。';
       let title = '';
       try { title = fs.readFileSync(path.join(WORK_DIR, 'title.txt'), 'utf8').trim(); } catch (_) {}
-      return send(res, 200, { markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD) });
+      return send(res, 200, { markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD), autoRun: AUTO_RUN });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/ask') {
@@ -281,6 +306,7 @@ const server = http.createServer(async (req, res) => {
         appendSystem: SYSTEM_APPEND,
         // 実行の許可は、その人が普段 Claude Code に与えている設定に従う
         disallowedTools: RUN_DISALLOWED,
+        matchMainMode: true,
       });
       return send(res, 200, result);
     }
@@ -327,6 +353,7 @@ server.listen(Number(args.port || 0), '127.0.0.1', () => {
   console.log(`作業フォルダ: ${WORK_DIR}`);
   console.log(`メインのセッション: ${mainSessionId || '(見つかりません)'}`);
   console.log(`分身を動かす場所: ${SPAWN_CWD}`);
+  console.log(`メインの権限モード: ${MAIN_MODE || '(分かりません)'}${AUTO_RUN ? ' → SQLは確認なしで実行します' : ''}`);
   if (!args['no-open']) openBrowser(url);
 });
 

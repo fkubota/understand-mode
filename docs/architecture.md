@@ -56,7 +56,7 @@ sequenceDiagram
 | （全API共通） | 起動ごとに作る合言葉を照合する。`Host` と `Origin` も見て、別のページ・別のプロセスからの操作を断る（`denyReason()`）。合言葉はURLの `?t=` でブラウザに渡し、画面は `X-Understand-Token` ヘッダで返す |
 | `GET /api/init` | `main.md`・題名・プロジェクト名・セッションの有無 |
 | `POST /api/ask` | 付箋の質問。初回は `{action, anchor, question, sessionId(親), continueSession:false}` で親から**分岐**。続きは `{followUp, sessionId(この付箋), continueSession:true}` で同じセッションに積む |
-| `POST /api/runsql` | 「承認して実行」。参照だけのSQLか検査し、「いつものやり方で実行して」と頼む。**どの道具を使うかは指定しない**（`--allowedTools` を渡さないので、その人が普段 Claude Code に与えている許可がそのまま使われる）。` ```json {columns, rows}` と ` ```vega-lite`（data は書かせない）を返させる |
+| `POST /api/runsql` | SQLの実行。参照だけのSQLか検査し、「いつものやり方で実行して」と頼む。**どの道具を使うかは指定しない**（`--allowedTools` を渡さないので、その人が普段 Claude Code に与えている許可がそのまま使われる）。メインが `bypassPermissions` ならそれも分身に渡す。` ```json {columns, rows}` と ` ```vega-lite`（data は書かせない）を返させる |
 | `POST /api/draft` | 返す文の下書き。分岐せず、メモだけを渡して軽いモデル（既定 sonnet）で作る |
 | `POST /api/return` | `return.md` を書き、このサーバーが作った分岐セッションの `.jsonl` を削除して終了 |
 
@@ -73,6 +73,8 @@ sequenceDiagram
 - SQL実行時は `Edit` / `Write` / `NotebookEdit` だけ禁止し、許可は足さない。何で実行するかはその人の環境に委ねる。
 - SQLは `readOnlyError()` で検査し、`select`／`with` で始まる1文だけを通す。書き込みや複数文は、Claudeを呼ぶ前に弾く。
 - **アプリは接続先も道具も知らない。** 分身はメインの文脈を引き継いでいるので、この環境でのデータの取り方はすでに知っている。アプリが指定すると、その知識を上書きして邪魔になる。
+- 承認を挟むかどうかは、メインのセッションの `permissionMode` に合わせる（`permissionModeOf()`）。`bypassPermissions` なら画面は聞き返さず、提案されたSQLをそのまま実行する。アプリが独自に厳しくしない。
+- ただし `--disallowedTools` は `--permission-mode bypassPermissions` より強い（実機で確認済み）。承認前にファイル編集とコマンド実行をさせない約束は、このモードでも守られる。
 - `SYSTEM_APPEND` では「コマンドの実行は、ユーザーが承認したSQLのときだけ」と書いている。ここを「実行しないでください」と書くと、承認後も分身が従ってしまい実行されない（実機で踏んだ）。
 - `-p` モードでは、許可が必要なツールはそもそも拒否される。
 - 分身への指示は `SYSTEM_APPEND`（`--append-system-prompt`）。答え方・図・SQL書式・コード抜粋の書式・「本筋への影響：」の書き方を決めている。

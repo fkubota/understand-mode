@@ -31,6 +31,7 @@ if (process.env.FAKE_CLAUDE_DUMP) {
     prompt: at('-p') || '',
     allowedTools: listAt('--allowedTools'),
     disallowedTools: listAt('--disallowedTools'),
+    permissionMode: listAt('--permission-mode'),
     pgpassword: process.env.PGPASSWORD || null,
   }));
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: 'ok', session_id: 'fake-session', total_cost_usd: 0 }));
@@ -47,12 +48,23 @@ function ok(name, cond, detail) {
   if (!cond) failed++;
 }
 
-function startServer() {
+// 権限モードの確認用に、偽のセッション記録を ~/.claude/projects に置く（後で消す）
+function fakeSession(mode) {
+  const slug = ROOT.replace(/[^A-Za-z0-9]/g, '-');
+  const dir = path.join(os.homedir(), '.claude', 'projects', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  const id = 'understand-test-' + mode;
+  const file = path.join(dir, id + '.jsonl');
+  fs.writeFileSync(file, JSON.stringify({ cwd: ROOT, permissionMode: mode }) + '\n');
+  return { id, remove: () => { try { fs.rmSync(file, { force: true }); } catch (_) {} } };
+}
+
+function startServer(sessionId) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'understand-test-'));
   fs.writeFileSync(path.join(dir, 'main.md'), '# テスト\n');
   fs.writeFileSync(path.join(dir, 'title.txt'), 'テスト\n');
   const dump = path.join(dir, 'dump.json');
-  const child = spawn(process.execPath, [SERVER, '--dir', dir, '--session', 'test-session', '--cwd', ROOT, '--port', '0', '--no-open'], {
+  const child = spawn(process.execPath, [SERVER, '--dir', dir, '--session', sessionId || 'test-session', '--cwd', ROOT, '--port', '0', '--no-open'], {
     env: Object.assign({}, process.env, { UNDERSTAND_CLAUDE_BIN: __filename, FAKE_CLAUDE_DUMP: dump }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -188,6 +200,27 @@ function rawRequest(s, host, body) {
     d = JSON.parse(fs.readFileSync(s.dump, 'utf8'));
     ok("値 'a--b' が欠けていない", d.prompt.includes("'a--b'"), d.prompt.slice(-150));
     s.stop();
+  }
+
+  console.log('\n6. メインの権限モードに合わせること');
+  {
+    const bypass = fakeSession('bypassPermissions');
+    let s = await startServer(bypass.id);
+    let init = await fetch(s.base + '/api/init', { headers: { 'X-Understand-Token': s.token } }).then((r) => r.json());
+    ok('bypassPermissions なら確認なしにする', init.autoRun === true, JSON.stringify(init.autoRun));
+    await post(s, '/api/runsql', { sessionId: 'x', sql: 'select 1' });
+    let d = JSON.parse(fs.readFileSync(s.dump, 'utf8'));
+    ok('分身にも同じモードを渡す', (d.permissionMode || []).includes('bypassPermissions'), JSON.stringify(d.permissionMode));
+    s.stop(); bypass.remove();
+
+    const normal = fakeSession('default');
+    s = await startServer(normal.id);
+    init = await fetch(s.base + '/api/init', { headers: { 'X-Understand-Token': s.token } }).then((r) => r.json());
+    ok('default なら承認ボタンを残す', init.autoRun === false, JSON.stringify(init.autoRun));
+    await post(s, '/api/runsql', { sessionId: 'x', sql: 'select 1' });
+    d = JSON.parse(fs.readFileSync(s.dump, 'utf8'));
+    ok('default ならモードを渡さない', d.permissionMode === null, JSON.stringify(d.permissionMode));
+    s.stop(); normal.remove();
   }
 
   console.log(failed ? `\n${failed}件 失敗しました\n` : '\nすべて通りました\n');

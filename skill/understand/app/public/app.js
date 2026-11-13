@@ -14,6 +14,8 @@ const S = { stickies: {}, order: [], pan: { x: 40, y: 20 }, zoom: 1, seq: 0, foc
 let pendingCount = 0;
 let selCtx = null;
 let mmSeq = 0;
+// メインが確認なしで動いているか。/api/init で届く
+let autoRun = false;
 
 const board = $('#board'), world = $('#world'), wires = $('#wires');
 const mainCard = $('#main-card'), mainBody = $('#main-body');
@@ -64,6 +66,7 @@ async function init() {
       numberLines(code);
     }
   });
+  autoRun = !!data.autoRun;
   $('#project').textContent = data.project ? `プロジェクト：${data.project}` : '';
   if (!data.hasSession) $('#project').textContent += '（メインのセッションが見つかりません）';
   restore();
@@ -331,17 +334,30 @@ async function ask(st, { action, question, followUp }) {
   if (r.ok) { st.sessionId = r.sessionId || st.sessionId; st.messages.push({ role: 'assistant', text: r.text }); }
   else st.messages.push({ role: 'error', text: r.error || '失敗しました' });
   save(); renderSticky(st); refreshStatus(); drawWires();
+
+  // メインが確認なしで動いているなら、提案されたSQLはそのまま実行する
+  if (r.ok && autoRun) {
+    const msg = st.messages[st.messages.length - 1];
+    const sql = firstSql(msg.text);
+    if (sql) await runSql(st, msg, sql);
+  }
+}
+
+// 回答の中の最初の ```sql を取り出す
+function firstSql(text) {
+  const m = (text || '').match(/```sql\s*\n([\s\S]*?)```/);
+  return m ? m[1].trim() : null;
 }
 
 async function runSql(st, msg, sql) {
   if (st.busy) return;
   if (!st.sessionId) { st.messages.push({ role: 'error', text: 'この付箋にはまだセッションがありません。' }); return renderSticky(st); }
   msg.ranSql = (msg.ranSql || []).concat([sql.trim()]);
-  st.messages.push({ role: 'user', text: 'このSQLを承認して実行' });
+  st.messages.push({ role: 'user', text: autoRun ? 'このSQLを実行（メインと同じく確認なし）' : 'このSQLを承認して実行' });
   st.busy = true; setPending(1); renderSticky(st);
   const r = await post('/api/runsql', { sessionId: st.sessionId, sql });
   st.busy = false; setPending(-1);
-  if (r.ok) { st.sessionId = r.sessionId || st.sessionId; st.messages.push({ role: 'assistant', kind: 'result', at: now(), sql, text: r.text }); }
+  if (r.ok) { st.sessionId = r.sessionId || st.sessionId; st.messages.push({ role: 'assistant', kind: 'result', at: now(), sql, auto: autoRun, text: r.text }); }
   else st.messages.push({ role: 'error', text: r.error || 'SQLを実行できませんでした' });
   save(); renderSticky(st); drawWires();
 }
@@ -519,7 +535,7 @@ function renderMessage(st, m) {
   wrap.append(div);
 
   if (m.kind === 'result') {
-    wrap.append(el('div', 'source-line', `出典：Claudeが取得した結果（${m.at} に承認して実行）。グラフの値は結果の表から描いています。`));
+    wrap.append(el('div', 'source-line', `出典：Claudeが取得した結果（${m.at} に${m.auto ? '実行' : '承認して実行'}）。グラフの値は結果の表から描いています。`));
   }
 
   // 「本筋への影響：」を見つけたら目立たせる
@@ -540,7 +556,7 @@ function sqlBox(st, m, sql, pre) {
   const ran = (m.ranSql || []).includes(sql.trim()) || m.kind === 'result';
   const box = el('div', 'sql-box' + (ran ? ' ran' : ''));
   const head = el('div', 'sql-head');
-  head.append(el('span', null, ran ? '実行済みのSQL' : '提案されたSQL（まだ実行していません）'));
+  head.append(el('span', null, ran ? '実行したSQL' : (autoRun ? '提案されたSQL（まもなく実行します）' : '提案されたSQL（まだ実行していません）')));
   head.append(el('span', 'spacer'));
   const code = pre.querySelector('code');
   if (!ran) {
