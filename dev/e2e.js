@@ -16,8 +16,17 @@ async function select(page, rootSel, needle) {
     let n;
     while ((n = w.nextNode())) nodes.push(n);
     const flat = nodes.map((x) => x.data).join('');
-    const at = flat.indexOf(needle);
-    if (at < 0) throw new Error('not found: ' + needle);
+    // 本物の選択と同じく、段落途中の改行は空白として扱う
+    let norm = ''; const back = [];
+    for (let i = 0; i < flat.length; i++) {
+      if (/\s/.test(flat[i])) { if (norm.endsWith(' ')) continue; norm += ' '; } else { norm += flat[i]; }
+      back.push(i);
+    }
+    const want = needle.replace(/\s+/g, ' ').trim();
+    const hit = norm.indexOf(want);
+    if (hit < 0) throw new Error('not found: ' + needle);
+    const at = back[hit];
+    const endAt = back[hit + want.length - 1] + 1;
     const locate = (offset) => {
       let pos = 0;
       for (const node of nodes) {
@@ -27,7 +36,7 @@ async function select(page, rootSel, needle) {
       const last = nodes[nodes.length - 1];
       return { node: last, offset: last.data.length };
     };
-    const a = locate(at), b = locate(at + needle.length);
+    const a = locate(at), b = locate(endAt);
     const r = document.createRange();
     r.setStart(a.node, a.offset); r.setEnd(b.node, b.offset);
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
@@ -70,7 +79,8 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
   await idle(page);
 
   // インラインコードをまたぐ選択でも、出どころにマーカーが付くこと
-  await select(page, '#main-body', '集計は daily_sales テーブルの amount 列を日別に合計したものです。');
+  // 段落途中の改行（画面では空白）と、インラインコードの両方をまたぐ選択
+  await select(page, '#main-body', '集計は daily_sales テーブルの amount 列を日別に合計したものです。 実績値なので、取り消し分は差し引いてあります。');
   await action(page, 'detail');
   await idle(page);
   const crossed = await page.evaluate(() => {
@@ -78,7 +88,7 @@ const idle = (page) => page.waitForFunction(() => document.querySelector('#pendi
     const last = marks.filter((m) => m.className.includes('t-detail'));
     return { count: last.length, text: last.map((m) => m.textContent).join('') };
   });
-  if (crossed.count < 3 || !crossed.text.includes('daily_sales') || !crossed.text.includes('amount')) {
+  if (crossed.count < 3 || !crossed.text.includes('daily_sales') || !crossed.text.includes('amount') || !crossed.text.includes('取り消し分')) {
     errors.push(`またぎのマーカーが付いていない: ${JSON.stringify(crossed)}`);
   }
 

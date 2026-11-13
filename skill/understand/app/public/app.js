@@ -609,8 +609,11 @@ function rehighlight(root, sourceId) {
   });
 }
 
-// 選んだ文は、太字やインラインコードをまたいで複数のテキストノードに分かれていることがある。
-// 全体を1本の文字列としてつないでから探し、またいだぶんはそれぞれ mark で包む。
+// 選んだ文を、本筋のどこから来たか探して mark で包む。
+// つまずきどころが2つある。
+//   1. 太字やインラインコードをまたぐと、テキストノードが分かれる → つないでから探す
+//   2. 段落の途中の改行は、画面では空白に見える。ブラウザが返す選択文字列は空白だが、
+//      DOMの中は改行のまま → 空白の種類をそろえてから比べる
 function highlightText(root, text) {
   const nodes = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -620,16 +623,31 @@ function highlightText(root, text) {
     nodes.push(n);
   }
   const flat = nodes.map((x) => x.data).join('');
-  const firstLine = text.split('\n').map((s) => s.trim()).find(Boolean) || '';
-  const candidates = [text.trim(), firstLine, firstLine.slice(0, 40)].filter((s, i, a) => s && a.indexOf(s) === i);
 
-  let start = -1, needle = '';
+  // 連続する空白を1つにそろえた文字列と、もとの位置への対応表を作る
+  let norm = '';
+  const back = [];
+  for (let i = 0; i < flat.length; i++) {
+    if (/\s/.test(flat[i])) {
+      if (norm.endsWith(' ')) continue;
+      norm += ' ';
+    } else {
+      norm += flat[i];
+    }
+    back.push(i);
+  }
+  const squash = (s) => s.replace(/\s+/g, ' ').trim();
+
+  const firstLine = text.split('\n').map((s) => s.trim()).find(Boolean) || '';
+  const candidates = [text, firstLine, firstLine.slice(0, 40)]
+    .map(squash).filter((s, i, a) => s && a.indexOf(s) === i);
+
+  let start = -1, end = -1;
   for (const c of candidates) {
-    const i = flat.indexOf(c);
-    if (i >= 0) { start = i; needle = c; break; }
+    const at = norm.indexOf(c);
+    if (at >= 0) { start = back[at]; end = back[at + c.length - 1] + 1; break; }
   }
   if (start < 0) return [];
-  const end = start + needle.length;
 
   // つないだ文字列の [start, end) を、もとのテキストノードの範囲に割り戻す
   const segments = [];
