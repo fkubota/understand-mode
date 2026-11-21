@@ -25,6 +25,8 @@ if (prompt.includes('実行を承認しました')) {
   text = '10月の増加分430万円の内訳で見ると分かりやすいです。\n\n```mermaid\nflowchart LR\n  A[9月 2410万円] --> B[10月 2840万円]\n  B --> C[増加 430万円]\n  C --> D[イベント2日の上乗せ 約107万円]\n  C --> E[残り 約323万円 説明できていない]\n```\n\n2日間の売上290万円のうち、平常どおりなら入るはずの183万円を引くと、イベントの上乗せは約107万円です。増加分の4分の1ほどにとどまります。';
 } else if (prompt.includes('データで確かめたい')) {
   text = 'イベントのない他店舗も同じ時期に伸びているかを見れば確かめられます。\n\n```sql\nselect\n    date_trunc(\'week\', d.sales_date) as week\n    , d.shop_id\n    , sum(d.amount) / 10000 as amount_man\nfrom daily_sales d\nwhere d.sales_date >= \'2025-09-01\'\n    and d.sales_date < \'2025-11-01\'\ngroup by 1, 2\norder by 1, 2\n```\n\n中央店だけが跳ねていればイベントの影響と言えますが、他店舗も同じように伸びていれば、季節や別の要因を疑うことになります。\n\n本筋への影響：他店舗と比べずに、中央店の伸びをイベントだけで説明しています。';
+} else if (prompt.includes('レビューしてください')) {
+  text = '**低** 「他店舗も10月に伸びている」ことに触れずに、イベントが理由だと言い切っています。季節要因や販促の可能性が残るので、断定は避けたほうが安全です。\n\n**中** 2日間の売上290万円を、そのままイベントの上乗せとして扱っています。平常どおりでも入る183万円が含まれているので、上乗せは約107万円です。増加分430万円の4分の1にとどまります。\n\n本筋への影響：「イベントの影響です」という結論と、290万円の扱いを直す必要があります。';
 } else if (prompt.includes('用語')) {
   text = '**客単価** は「売上 ÷ 客数（レシート枚数）」です。1人あたりいくら買ったかを表します。\n\nこの本筋では、客単価が1,180円から1,340円に上がったことを「普段より多めに買う客層が来た」根拠に使っています。ただし、値上げや商品構成の変化でも上がるので、それだけで客層が変わったとは言い切れません。';
 } else {
@@ -32,4 +34,4 @@ if (prompt.includes('実行を承認しました')) {
 }
 setTimeout(() => {
   process.stdout.write(JSON.stringify({ type: 'result', is_error: false, result: text, session_id: sid, total_cost_usd: 0 }));
-}, 600);
+}, Number(process.env.UNDERSTAND_MOCK_DELAY) || 600);
