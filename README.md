@@ -2,6 +2,12 @@
 
 Claude Code の出力を、付箋のホワイトボードで寄り道しながら理解するためのスキルです。
 
+わからない文を選ぶと、その場に付箋が生えます。付箋の中では、メインの文脈を引き継いだ分身が答えます。メインの会話は汚れません。
+
+![understand-mode のデモ](docs/media/demo.gif)
+
+## できること
+
 - 本筋（Claudeの出力・コード・未コミットの差分）の文や行を選ぶと、質問・詳しく・用語・図・データ・レビューの付箋が生えます
 - コードと差分は行番号付きで表示し、選んだ行番号をClaudeに伝えます
 - 説明に載るコードの抜粋には、ファイル名と実際の行番号が付きます
@@ -26,7 +32,7 @@ Claude Code の出力を、付箋のホワイトボードで寄り道しなが�
 ## インストール
 
 ```bash
-git clone <このリポジトリのURL>
+git clone https://github.com/fkubota/understand-mode.git
 cd understand-mode
 bash install.sh
 ```
@@ -99,6 +105,8 @@ npm run mock       # 偽の claude で起動（費用ゼロ）
 npm run test:sql   # SQL実行まわりの確認（ClaudeもDBも使わない）
 npm i && npm run test:e2e   # mock を動かしたまま、画面を一通り自動操作
 ```
+
+デモのGIFは `docs/media/demo.gif` です。差し替えるときは同じパスに置いてください。
 
 ## ライセンス
 
