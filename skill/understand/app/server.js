@@ -267,7 +267,13 @@ const server = http.createServer(async (req, res) => {
       const markdown = fs.existsSync(mdPath) ? fs.readFileSync(mdPath, 'utf8') : '# 本筋がありません\n\nmain.md が見つかりませんでした。';
       let title = '';
       try { title = fs.readFileSync(path.join(WORK_DIR, 'title.txt'), 'utf8').trim(); } catch (_) {}
-      return send(res, 200, { markdown, title, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD), autoRun: AUTO_RUN });
+      // `-o` のとき、メインのClaudeが置いていった付箋（全体像）。無ければ空のまま
+      let stickies = [];
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(WORK_DIR, 'stickies.json'), 'utf8'));
+        if (Array.isArray(j)) stickies = j.slice(0, 5).filter((s) => s && typeof s.text === 'string');
+      } catch (_) {}
+      return send(res, 200, { markdown, title, stickies, hasSession: !!mainSessionId, project: path.basename(PROJECT_CWD), autoRun: AUTO_RUN });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/ask') {

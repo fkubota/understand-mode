@@ -2,15 +2,15 @@
 // understand-mode フロントエンド（依存：marked / DOMPurify / mermaid / vega-embed）
 
 const $ = (s) => document.querySelector(s);
-const KIND = { question: '質問', detail: '詳しく', term: '用語', diagram: '図', data: 'データ', review: 'レビュー', memo: 'メモ' };
+const KIND = { question: '質問', detail: '詳しく', term: '用語', diagram: '図', data: 'データ', review: 'レビュー', memo: 'メモ', overview: '全体像' };
 const ACTION_LABEL = { detail: 'もっと詳しく', term: 'この用語を調べる', diagram: '図で見せて', data: 'データで確かめたい', review: 'ここをレビューして' };
-const WIRE_COLOR = { question: '#c9a400', detail: '#c9a400', term: '#5f70b6', diagram: '#9a937f', data: '#476b92', review: '#3f8f5a', memo: '#9fbddf' };
+const WIRE_COLOR = { question: '#c9a400', detail: '#c9a400', term: '#5f70b6', diagram: '#9a937f', data: '#476b92', review: '#3f8f5a', memo: '#9fbddf', overview: '#c4765a' };
 const STORE_KEY = 'understand-state';
 // サーバーが発行した合言葉。URLから受け取り、API呼び出しのたびに添える
 const TOKEN = new URLSearchParams(location.search).get('t') || '';
 const apiHeaders = { 'Content-Type': 'application/json', 'X-Understand-Token': TOKEN };
 
-const S = { stickies: {}, order: [], pan: { x: 40, y: 20 }, zoom: 1, seq: 0, focus: null };
+const S = { stickies: {}, order: [], pan: { x: 40, y: 20 }, zoom: 1, seq: 0, focus: null, seeded: false };
 let pendingCount = 0;
 let selCtx = null;
 let mmSeq = 0;
@@ -73,8 +73,33 @@ async function init() {
   $('#project').textContent = data.title || (data.project ? `プロジェクト：${data.project}` : '');
   if (!data.hasSession) $('#project').textContent += '（メインのセッションが見つかりません）';
   restore();
+  // 貼るのは一度だけ。枚数ではなく「貼ったか」で見る（消した付箋がリロードで戻ってこないように）
+  if (!S.seeded) { S.seeded = true; addGivenStickies(data.stickies); }
   applyView();
   renderAll();
+}
+
+// `-o` のとき、メインのClaudeが置いていった付箋（全体像）を最初から貼っておく。
+// 分身は呼ばない。本筋を書いた本人がそのまま書いたものなので、待ち時間も費用もかからない。
+// 貼るのは初回の表示だけ。たたむ・消すは sessionStorage に残るので、描き直しで戻ったりしない。
+function addGivenStickies(given) {
+  if (!Array.isArray(given)) return;
+  given.forEach((src, i) => {
+    const text = String((src && src.text) || '').trim();
+    if (!text) return;
+    const id = 's' + (++S.seq);
+    const anchorY = i * 48;
+    const pos = placeNew('main', anchorY, 'overview');
+    S.stickies[id] = {
+      id, type: 'overview', parent: 'main',
+      title: String((src && src.title) || '全体像'),
+      code: false, lines: '', anchorText: '', anchorY,
+      x: Math.round(pos.x), y: Math.round(pos.y),
+      folded: false, impact: false, sessionId: null,
+      messages: [{ role: 'assistant', text }], memo: '', busy: false,
+    };
+    S.order.push(id);
+  });
 }
 
 // 本筋のコードに行番号を付ける（diffなら追加・削除行に色）
@@ -316,6 +341,11 @@ function setPending(d) {
 }
 
 function anchorFor(st) {
+  // 全体像の付箋は本筋の一部を選んで作ったものではないので、まとめ自体を対象として渡す
+  if (st.type === 'overview') {
+    const first = st.messages.find((m) => m.role === 'assistant');
+    return `本筋の全体（この付箋は全体像のまとめ）\n${first ? first.text.slice(0, 800) : ''}`;
+  }
   if (!st.code) return st.anchorText;
   return `${st.lines ? st.lines + '\n' : ''}~~~~\n${st.anchorText}\n~~~~`;
 }
@@ -386,7 +416,7 @@ function renderSticky(st, skipWires) {
     box.addEventListener('mousedown', () => { if (S.focus !== st.id) { S.focus = st.id; document.querySelectorAll('.sticky.focused').forEach((x) => x.classList.remove('focused')); box.classList.add('focused'); } });
     world.appendChild(box);
   }
-  const wide = st.type === 'diagram' || st.type === 'data' || st.type === 'review';
+  const wide = st.type === 'diagram' || st.type === 'data' || st.type === 'review' || st.type === 'overview';
   box.className = `sticky t-${st.type}${wide ? ' wide' : ''}${st.impact ? ' impact' : ''}${st.folded ? ' folded' : ''}${S.focus === st.id ? ' focused' : ''}`;
   box.setAttribute('aria-label', `付箋：${st.title}`);
   box.style.left = st.x + 'px';

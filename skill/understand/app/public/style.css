@@ -100,6 +100,11 @@ mark.anc.impact { background: linear-gradient(transparent 52%, var(--pink-mark) 
 .sticky.t-diagram { background: #f7f4ea; }
 .sticky.t-data { background: var(--paper-card); border: 1px solid var(--sky-300); }
 .sticky.t-memo { background: var(--paper-card); border: 1px dashed var(--sky-300); }
+/* 全体像（-o で最初から貼ってある1枚）。最初に目が行くよう、ほかの付箋と違う暖色にする */
+.sticky.t-overview { background: var(--pink); }
+.sticky.t-overview .st-tape { background: rgba(196,118,90,.22); }
+/* 地図として一度に見渡せるよう、ほかの付箋より高くする（図が入ると320pxでは切れる） */
+.sticky.t-overview .st-body { max-height: 560px; }
 /* 影響ありでも付箋の地色は変えない。印はチップだけに任せる */
 .sticky.focused { outline: 1.5px solid var(--ink); outline-offset: 3px; }
 /* 上辺に貼ったマスキングテープ */

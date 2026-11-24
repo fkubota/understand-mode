@@ -46,6 +46,7 @@ sequenceDiagram
 | --- | --- | --- |
 | `main.md` | メインのClaude | 本筋（Markdown） |
 | `title.txt` | メインのClaude | 短い題名 |
+| `stickies.json` | メインのClaude | `-o` のとき置く「全体像」の付箋（`[{title, text}]`）。無ければ付箋なしで開く |
 | `url.txt` / `server.pid` / `server.log` | server.js | 起動情報 |
 | `return.md` | server.js | メインに返す文（「理解を終える」で作られる） |
 
@@ -54,7 +55,7 @@ sequenceDiagram
 | API | 内容 |
 | --- | --- |
 | （全API共通） | 起動ごとに作る合言葉を照合する。`Host` と `Origin` も見て、別のページ・別のプロセスからの操作を断る（`denyReason()`）。合言葉はURLの `?t=` でブラウザに渡し、画面は `X-Understand-Token` ヘッダで返す |
-| `GET /api/init` | `main.md`・題名・プロジェクト名・セッションの有無 |
+| `GET /api/init` | `main.md`・題名・プロジェクト名・セッションの有無・`stickies.json`（最大5件。`text` が文字列のものだけ） |
 | `POST /api/ask` | 付箋の質問。初回は `{action, anchor, question, sessionId(親), continueSession:false}` で親から**分岐**。続きは `{followUp, sessionId(この付箋), continueSession:true}` で同じセッションに積む |
 | `POST /api/runsql` | SQLの実行。参照だけのSQLか検査し、「いつものやり方で実行して」と頼む。**どの道具を使うかは指定しない**（`--allowedTools` を渡さないので、その人が普段 Claude Code に与えている許可がそのまま使われる）。メインが `bypassPermissions` ならそれも分身に渡す。` ```json {columns, rows}` と ` ```vega-lite`（data は書かせない）を返させる |
 | `POST /api/draft` | 返す文の下書き。分岐せず、メモだけを渡して軽いモデル（既定 sonnet）で作る |
@@ -102,9 +103,9 @@ sequenceDiagram
 ### 状態
 
 ```js
-S = { stickies: {id: Sticky}, order: [id], pan: {x, y}, zoom, seq, focus }
+S = { stickies: {id: Sticky}, order: [id], pan: {x, y}, zoom, seq, focus, seeded }
 Sticky = {
-  id, type,            // question | detail | term | diagram | data | review | memo
+  id, type,            // question | detail | term | diagram | data | review | memo | overview
   parent,              // 'main' | 親の付箋ID | null（メモ付箋）
   title, anchorText, anchorY, code, lines,   // 選んだ文と位置、コードなら行番号
   x, y, w, h, folded, impact,   // w/h はつまみで変えたとき。h があれば本文を固定高＋スクロールにする
@@ -115,6 +116,9 @@ Sticky = {
 ```
 
 - `sessionStorage` に保存（タブを閉じたら消える＝ログは残さない方針）。
+- `overview` は `-o` で最初から貼ってある付箋。**分身は呼ばない**（本筋を書いたメインのClaudeが `stickies.json` に書いたものをそのまま出す）。
+  貼るのは一度だけで、`S.seeded` で覚える。枚数で見ると、消した付箋がリロードで戻ってくる。
+  本筋の一部を選んで作る種類ではないので、選択メニューには出さず `anchorText` も持たない。続けて質問したときの【対象】は、付箋に書いたまとめそのもの（`anchorFor`）。
 
 ### 描画のきまり
 
@@ -153,6 +157,7 @@ vega-lite のメジャーを上げたら、`app.js` の `$schema` の既定値�
 | 費用をかけずにUIを触る | `npm run mock`（偽の claude で起動。`NO_OPEN=1` でブラウザを開かない） |
 | 一通りの操作を自動で確認 | 別の端末で `npm run mock` を動かしたまま `npm i && npm run test:e2e` |
 | 本筋の図とグラフを確認 | `npm run mock -- 4502 dev/fixtures/sample-figures.md` を動かしたまま `npm run test:figures` |
+| 全体像の付箋を確認 | `npm run mock -- 4503 dev/fixtures/sample-main.md dev/fixtures/sample-stickies.json` を動かしたまま `npm run test:overview` |
 | SQL実行まわりを確認 | `npm run test:sql`（Claudeもデータベースも使わない。道具を指定していないこと、承認前は実行させないこと、参照以外のSQLを弾くことを見る） |
 | 本物の Claude Code で試す | `npm run link` で `~/.claude/skills/understand` にリンクし、Claude Code を開き直す |
 | PRモードを試す | `npm run pr-demo` でサンプルリポジトリを作り、そこで `/understand このPRを理解したい` |

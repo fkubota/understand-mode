@@ -9,7 +9,8 @@
     "test:sql": "node dev/test-sql.js",
     "link": "bash dev/link-skill.sh",
     "pr-demo": "bash dev/make-pr-demo.sh",
-    "test:figures": "node dev/test-figures.js"
+    "test:figures": "node dev/test-figures.js",
+    "test:overview": "node dev/test-overview.js"
   },
   "devDependencies": {
     "playwright": "^1.48.0"
